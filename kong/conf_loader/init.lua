@@ -1579,6 +1579,7 @@ local function load(path, custom_conf, opts)
         if is_predefined_dhgroup(directive.value) then
           if ssl_enabled then
             directive.value = pl_path.abspath(pl_path.join(conf.prefix, "ssl", directive.value .. ".pem"))
+
           else
             table.remove(conf[name], i)
           end
