@@ -398,7 +398,7 @@ local CONF_INFERENCES = {
                          }
                        },
 
-  database = { enum = { "postgres", "cassandra", "off" }  },
+  database = { enum = { "postgres", "cassandra", "mongo", "off" }  },
   pg_port = { typ = "number" },
   pg_timeout = { typ = "number" },
   pg_password = { typ = "string" },
