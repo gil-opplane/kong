@@ -2,16 +2,17 @@ local log = require "kong.cmd.utils.log"
 local cassandra = require "cassandra"
 local Cluster   = require "resty.cassandra.cluster"
 local pl_stringx = require "pl.stringx"
-
+local mongo = require "mongo"
 
 local ngx = ngx
+local fmt           = string.format
 
 
-local CassandraConnector   = {}
-CassandraConnector.__index = CassandraConnector
+local MongoConnector   = {}
+MongoConnector.__index = MongoConnector
 
 
-function CassandraConnector.new(kong_config)
+function MongoConnector.new(kong_config)
   local resolved_contact_points = {}
 
   do
@@ -108,12 +109,13 @@ function CassandraConnector.new(kong_config)
     for i, cp in ipairs(kong_config.cassandra_contact_points) do
       local ip, err, try_list = dns.toip(cp)
       if not ip then
-        log.error("[cassandra] DNS resolution failed for contact " ..
-                  "point '%s': %s. Tried: %s", cp, err, tostring(try_list))
+        log.error("[mongo] DNS resolution failed for endpoint '%s': %s. Tried: %s", cp, err, tostring(try_list))
 
       else
-        log.debug("resolved Cassandra contact point '%s' to: %s", cp, ip)
+        log.debug("resolved Mongo endpoint '%s' to: %s", cp, ip)
         resolved_contact_points[i] = ip
+        local client = mongo.Client(fmt("mongodb://%s", ip))
+        print('client: ',client)
       end
     end
 
@@ -212,7 +214,7 @@ function CassandraConnector.new(kong_config)
     connection = nil, -- created by connect()
   }
 
-  return setmetatable(self, CassandraConnector)
+  return setmetatable(self, MongoConnector)
 end
 
 
@@ -221,7 +223,7 @@ local function extract_major_minor(release_version)
 end
 
 
-function CassandraConnector:init()
+function MongoConnector:init()
   local ok, err = self.cluster:refresh()
   if not ok then
     return nil, err
@@ -270,7 +272,7 @@ function CassandraConnector:init()
 end
 
 
-function CassandraConnector:init_worker()
+function MongoConnector:init_worker()
   if self.refresh_frequency > 0 then
     local hdl, err = ngx.timer.every(self.refresh_frequency, function()
       local ok, err, topology = self.cluster:refresh(self.refresh_frequency)
@@ -300,22 +302,23 @@ function CassandraConnector:init_worker()
 end
 
 
-function CassandraConnector:infos()
+function MongoConnector:infos()
   local db_ver
   if self.major_minor_version then
     db_ver = extract_major_minor(self.major_minor_version)
   end
 
   return {
-    strategy = "Cassandra",
-    db_name = self.keyspace,
-    db_desc = "keyspace",
+    strategy = "Mongo",
+    db_name = "mongo", -- self.keyspace,
+    db_schema = "kong_coll",
+    db_desc = "database",
     db_ver = db_ver or "unknown",
   }
 end
 
 
-function CassandraConnector:connect()
+function MongoConnector:connect()
   local conn = self:get_stored_connection()
   if conn then
     return conn
@@ -334,7 +337,7 @@ end
 
 -- open a connection from the first available contact point,
 -- without a keyspace
-function CassandraConnector:connect_migrations(opts)
+function MongoConnector:connect_migrations(opts)
   local conn = self:get_stored_connection()
   if conn then
     return conn
@@ -360,7 +363,7 @@ function CassandraConnector:connect_migrations(opts)
 end
 
 
-function CassandraConnector:setkeepalive()
+function MongoConnector:setkeepalive()
   local conn = self:get_stored_connection()
   if not conn then
     return true
@@ -378,7 +381,7 @@ function CassandraConnector:setkeepalive()
 end
 
 
-function CassandraConnector:close()
+function MongoConnector:close()
   local conn = self:get_stored_connection()
   if not conn then
     return true
@@ -396,7 +399,7 @@ function CassandraConnector:close()
 end
 
 
-function CassandraConnector:wait_for_schema_consensus()
+function MongoConnector:wait_for_schema_consensus()
   local conn = self:get_stored_connection()
   if not conn then
     error("no connection")
@@ -446,7 +449,7 @@ function CassandraConnector:wait_for_schema_consensus()
 end
 
 
-function CassandraConnector:query(query, args, opts, operation)
+function MongoConnector:query(query, args, opts, operation)
   if operation ~= nil and operation ~= "read" and operation ~= "write" then
     error("operation must be 'read' or 'write', was: " .. tostring(operation), 2)
   end
@@ -507,7 +510,7 @@ function CassandraConnector:query(query, args, opts, operation)
   return res
 end
 
-function CassandraConnector:batch(query_args, opts, operation, logged)
+function MongoConnector:batch(query_args, opts, operation, logged)
   if operation ~= nil and operation ~= "read" and operation ~= "write" then
     error("operation must be 'read' or 'write', was: " .. tostring(operation), 2)
   end
@@ -603,7 +606,7 @@ local function select_tables(self)
 end
 
 
-function CassandraConnector:reset()
+function MongoConnector:reset()
   local ok, err = self:connect()
   if not ok then
     return nil, err
@@ -646,7 +649,7 @@ function CassandraConnector:reset()
 end
 
 
-function CassandraConnector:truncate()
+function MongoConnector:truncate()
   local ok, err = self:connect()
   if not ok then
     return nil, err
@@ -686,7 +689,7 @@ function CassandraConnector:truncate()
 end
 
 
-function CassandraConnector:truncate_table(table_name)
+function MongoConnector:truncate_table(table_name)
   local cql = string.format("TRUNCATE TABLE %s.%s",
                             self.keyspace, table_name)
 
@@ -694,7 +697,7 @@ function CassandraConnector:truncate_table(table_name)
 end
 
 
-function CassandraConnector:setup_locks(default_ttl, no_schema_consensus)
+function MongoConnector:setup_locks(default_ttl, no_schema_consensus)
   local ok, err = self:connect()
   if not ok then
     return nil, err
@@ -733,7 +736,7 @@ function CassandraConnector:setup_locks(default_ttl, no_schema_consensus)
 end
 
 
-function CassandraConnector:insert_lock(key, ttl, owner)
+function MongoConnector:insert_lock(key, ttl, owner)
   local cql = string.format([[
     INSERT INTO locks(key, owner)
       VALUES(?, ?)
@@ -757,7 +760,7 @@ function CassandraConnector:insert_lock(key, ttl, owner)
 end
 
 
-function CassandraConnector:read_lock(key)
+function MongoConnector:read_lock(key)
   local res, err = self:query([[
     SELECT * FROM locks WHERE key = ?
   ]], { key }, {
@@ -771,7 +774,7 @@ function CassandraConnector:read_lock(key)
 end
 
 
-function CassandraConnector:remove_lock(key, owner)
+function MongoConnector:remove_lock(key, owner)
   local res, err = self:query([[
     DELETE FROM locks WHERE key = ? IF owner = ?
   ]], { key, owner }, {
@@ -792,7 +795,7 @@ do
   local SCHEMA_META_KEY = "schema_meta"
 
 
-  function CassandraConnector:schema_migrations()
+  function MongoConnector:schema_migrations()
     local conn, err = self:connect()
     if not conn then
       error(err)
@@ -871,7 +874,7 @@ do
   end
 
 
-  function CassandraConnector:schema_bootstrap(kong_config, default_locks_ttl)
+  function MongoConnector:schema_bootstrap(kong_config, default_locks_ttl)
     -- compute keyspace creation CQL
 
     local cql_replication
@@ -969,7 +972,7 @@ do
   end
 
 
-  function CassandraConnector:schema_reset()
+  function MongoConnector:schema_reset()
     local conn = self:get_stored_connection()
     if not conn then
       error("no connection")
@@ -993,7 +996,7 @@ do
   end
 
 
-  function CassandraConnector:run_up_migration(name, up_cql)
+  function MongoConnector:run_up_migration(name, up_cql)
     if type(name) ~= "string" then
       error("name must be a string", 2)
     end
@@ -1033,7 +1036,7 @@ do
   end
 
 
-  function CassandraConnector:record_migration(subsystem, name, state)
+  function MongoConnector:record_migration(subsystem, name, state)
     if type(subsystem) ~= "string" then
       error("subsystem must be a string", 2)
     end
@@ -1095,4 +1098,4 @@ do
 end
 
 
-return CassandraConnector
+return MongoConnector

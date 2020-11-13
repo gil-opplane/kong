@@ -588,7 +588,7 @@ function _M.new(connector, schema, errors)
   -- self instanciation
 
   local self = {
-    connector               = connector, -- instance of kong.db.strategies.cassandra.init
+    connector               = connector, -- instance of kong.db.strategies.mongo.init
     schema                  = schema,
     errors                  = errors,
     each_pk_field           = each_pk_field,

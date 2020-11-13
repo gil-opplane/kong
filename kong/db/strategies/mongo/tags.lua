@@ -1,6 +1,3 @@
-local cassandra = require "cassandra"
-
-
 local encode_base64 = ngx.encode_base64
 local decode_base64 = ngx.decode_base64
 
@@ -43,7 +40,7 @@ function Tags:page_by_tag(tag, size, offset, options)
     offset = offset_decoded
   end
 
-  local args = { cassandra.text(tag) }
+  local args = { tostring(tag) }
 
   opts.page_size = size
   opts.paging_state = offset

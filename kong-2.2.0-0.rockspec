@@ -22,6 +22,7 @@ dependencies = {
   "version == 1.0.1",
   "kong-lapis == 1.8.1.2",
   "lua-cassandra == 1.5.0",
+  "lua-mongo == 1.2.2-1",
   "pgmoon == 1.11.0",
   "luatz == 0.4",
   "lua_system_constants == 0.1.4",
