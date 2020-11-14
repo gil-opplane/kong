@@ -836,10 +836,19 @@
 # inherited from the corresponding main connection config described above but
 # may be optionally overwritten explicitly using the `pg_ro_*` config below.
 
-#database = postgres             # Determines which of PostgreSQL or Cassandra
-                                 # this node will use as its datastore.
-                                 # Accepted values are `postgres`,
+#database = postgres             # Determines which of PostgreSQL, MongoDB
+                                 # or Cassandra this node will use as its
+                                 # datastore.
+                                 # Accepted values are `postgres`, `mongo`,
                                  # `cassandra`, and `off`.
+
+#mongo_host = 127.0.0.1          # Host of the Mongo server.
+#mongo_port = 27017              # Port of the Mongo server.
+#mongo_user = kong               # Mongo user.
+#mongo_password = admin          # Mongo user's password.
+#mongo_database = mtasDB         # Mongo database.
+#mongo_timeout = 5000            # Defines the timeout (in ms), for connecting,
+                                 # reading and writing.
 
 #pg_host = 127.0.0.1             # Host of the Postgres server.
 #pg_port = 5432                  # Port of the Postgres server.
