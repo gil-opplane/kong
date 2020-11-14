@@ -26,6 +26,10 @@ function MongoConnector.new(kong_config)
   local dns_tools = require "kong.tools.dns"
   local dns = dns_tools(kong_config)
 
+  local config = {
+    database          = kong_config.mongo_database
+  }
+
   -- check if endpoint is reachable
   local endpoint = kong_config.mongo_host
   local host, err, try_list = dns.toip(endpoint)
@@ -48,13 +52,18 @@ function MongoConnector.new(kong_config)
   local database = client:getDatabase('mtasDB')
   local collection = database:getCollection('magprofiles')
 
-  local query = mongo.BSON '{}'
-  for document in collection:find(query):iterator() do
-      print(document.correlationHandle)
-  end
+  --TEST INSERT
+  --local insert = fmt('{ "correlationHandle": "%s" }', math.random(10))
+  --collection:insert(insert)
+
+  --TEST SELECT
+  --local query = mongo.BSON '{}'
+  --for document in collection:find(query):iterator() do
+  --    print(fmt('cH: %s', document.correlationHandle))
+  --end
 
   local self = {
-    --config    = config,
+    config    = config,
   }
 
   return setmetatable(self, MongoConnector)
