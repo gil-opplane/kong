@@ -8,7 +8,7 @@ local fmt           = string.format
 local MongoConnector   = {}
 MongoConnector.__index = MongoConnector
 
-function build_url(config)
+local function build_url(config)
   local url = "mongodb://"
   if config.user and config.password then
     url = url .. fmt("%s:%s@", config.user, config.password)
@@ -31,6 +31,8 @@ function build_url(config)
   log.debug("Mongo connection string resolved as '%s'", url)
   return url
 end
+
+local function get_server_info() end
 
 function MongoConnector.new(kong_config)
   local resolved_endpoints = {}
@@ -86,33 +88,47 @@ function MongoConnector.new(kong_config)
 
 
   local url = build_url(config)
-  local client = mongo.Client(url)
 
-  local database = client:getDatabase(kong_config.mongo_database)
-  local collection = database:getCollection(kong_config.mongo_collection)
+  local self = {
+    config      = config,
+    server_url  = url,
+  }
+
+  return setmetatable(self, MongoConnector)
+end
+
+function MongoConnector:init()
+  local client, err = assert(mongo.Client(self.server_url))
+  if err then
+    return nil, err
+  end
+
+  local info = assert(client:command(self.config.db, '{"buildInfo":1}')):value()
+  self.server_info = info
+
 
   --TEST INSERT
   --local insert = fmt('{ "correlationHandle": "%s" }', math.random(10))
   --collection:insert(insert)
 
   --TEST SELECT
-  local query = mongo.BSON '{}'
-  for document in collection:find(query):iterator() do
-      print(fmt('cH: %s', document.correlationHandle))
-  end
+  --local query = mongo.BSON '{}'
+  --for document in collection:find(query):iterator() do
+  --    print(fmt('cH: %s', document.correlationHandle))
+  --end
 
-  local self = {
-    config    = config,
-  }
+  return true
+end
 
-  return setmetatable(self, MongoConnector)
+function MongoConnector:init_worker(strategies)
+  print('(MongoConnector.init_worker) To Do')
 end
 
 function MongoConnector:infos()
-  --local db_ver
-  --if self.major_minor_version then
-  --  db_ver = match(self.major_minor_version, "^(%d+%.%d+)")
-  --end
+  local db_ver
+  if self.server_info then
+    db_ver = self.server_info.version
+  end
 
   return {
     strategy    = "MongoDB",
@@ -123,5 +139,25 @@ function MongoConnector:infos()
   }
 end
 
+function MongoConnector:connect()
+  local conn = self:get_stored_connection()
+  if conn then
+    return conn
+  end
+
+  local client, err = assert(mongo.Client(self.server_url))
+  if err then
+    return nil, err
+  end
+
+  local db = client:getDatabase(self.config.db)
+
+  self:store_connection(db)
+end
+
+function MongoConnector:connect_migrations()
+  print('connect migrations!')
+  return self:connect()
+end
 
 return MongoConnector

@@ -92,7 +92,6 @@ mongo_user = kong
 mongo_password = NONE
 mongo_database = admin
 mongo_auth_database = admin
-mongo_collection = kong
 
 pg_host = 127.0.0.1
 pg_port = 5432
