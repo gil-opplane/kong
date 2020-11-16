@@ -76,8 +76,7 @@ function MongoConnector.new(kong_config)
     user              = kong_config.mongo_user,
     password          = kong_config.mongo_password,
     auth_db           = kong_config.mongo_auth_database,
-    db                = kong_config.mongo_database,
-    collection        = kong_config.mongo_collection,
+    database          = kong_config.mongo_database,
     replica_set       = kong_config.mongo_replica_set,
   }
 
@@ -103,24 +102,14 @@ function MongoConnector:init()
     return nil, err
   end
 
-  local info = assert(client:command(self.config.db, '{"buildInfo":1}')):value()
+  local info = assert(client:command(self.config.database, '{"buildInfo":1}')):value()
   self.server_info = info
-
-
-  --TEST INSERT
-  --local insert = fmt('{ "correlationHandle": "%s" }', math.random(10))
-  --collection:insert(insert)
-
-  --TEST SELECT
-  --local query = mongo.BSON '{}'
-  --for document in collection:find(query):iterator() do
-  --    print(fmt('cH: %s', document.correlationHandle))
-  --end
 
   return true
 end
 
 function MongoConnector:init_worker(strategies)
+  -- still have to understand wtf this does
   print('(MongoConnector.init_worker) To Do')
 end
 
@@ -133,7 +122,6 @@ function MongoConnector:infos()
   return {
     strategy    = "MongoDB",
     db_name     = self.config.database,
-    db_schema   = self.config.collection,
     db_desc     = "database",
     db_ver      = db_ver or "unknown",
   }
@@ -150,14 +138,38 @@ function MongoConnector:connect()
     return nil, err
   end
 
-  local db = client:getDatabase(self.config.db)
+  local connection = client:getDatabase(self.config.database)
 
-  self:store_connection(db)
+  self:store_connection(connection)
+
+  return connection
 end
 
 function MongoConnector:connect_migrations()
-  print('connect migrations!')
+  -- here we should have in consideration replica sets and shards (check cassandra)
   return self:connect()
+end
+
+function MongoConnector:close()
+  local conn = self:get_stored_connection()
+  if conn then
+    self:store_connection(nil)
+    if err then
+      return nil, err
+    end
+  end
+
+  return true
+end
+
+function MongoConnector:schema_migrations()
+  local conn = self:get_stored_connection()
+  if not conn then
+    error("no connection")
+  end
+
+  print('Schema migrations!')
+  return {}
 end
 
 return MongoConnector
