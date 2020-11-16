@@ -86,12 +86,13 @@ real_ip_recursive = off
 
 database = postgres
 
-mongo_host = 127.0.0.1
+mongo_hosts = 127.0.0.1
 mongo_port = 27017
 mongo_user = kong
 mongo_password = NONE
 mongo_database = admin
-mongo_timeout = 5000
+mongo_auth_database = admin
+mongo_collection = kong
 
 pg_host = 127.0.0.1
 pg_port = 5432
