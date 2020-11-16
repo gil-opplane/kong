@@ -32,7 +32,13 @@ local function build_url(config)
   return url
 end
 
-local function get_server_info() end
+local function get_server_info(client, database)
+  return assert(client:command(database, '{"buildInfo":1}')):value()
+end
+
+local function get_table_names(connection)
+  return assert(connection:getCollectionNames())
+end
 
 function MongoConnector.new(kong_config)
   local resolved_endpoints = {}
@@ -102,7 +108,7 @@ function MongoConnector:init()
     return nil, err
   end
 
-  local info = assert(client:command(self.config.database, '{"buildInfo":1}')):value()
+  local info = get_server_info(client, self.config.database)
   self.server_info = info
 
   return true
@@ -162,14 +168,38 @@ function MongoConnector:close()
   return true
 end
 
-function MongoConnector:schema_migrations()
-  local conn = self:get_stored_connection()
-  if not conn then
-    error("no connection")
+do
+
+  local SCHEMA_META_KEY = "schema_meta"
+
+  function MongoConnector:schema_migrations()
+    local conn = self:get_stored_connection()
+    if not conn then
+      error("no connection")
+    end
+
+    local table_names, err = get_table_names(conn)
+    if not table_names then
+      return nil, err
+    end
+
+    local schema_meta_table_exists
+    for _, name in ipairs(table_names) do
+      if name == SCHEMA_META_KEY then
+        schema_meta_table_exists = true
+        break
+      end
+    end
+
+    if not schema_meta_table_exists then
+      return nil, "No 'schema_meta' table available, needs bootstrap"
+    end
+
+    -- translate from line 725 and on
+
+    return {}
   end
 
-  print('Schema migrations!')
-  return {}
 end
 
 return MongoConnector
