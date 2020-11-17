@@ -1,8 +1,7 @@
-local log = require "kong.cmd.utils.log"
+local log   = require "kong.cmd.utils.log"
 local mongo = require "mongo"
 
-local ngx = ngx
-local fmt           = string.format
+local fmt          = string.format
 
 
 local MongoConnector   = {}
@@ -36,8 +35,21 @@ local function get_server_info(client, database)
   return assert(client:command(database, '{"buildInfo":1}')):value()
 end
 
-local function get_table_names(connection)
+local function get_collection_names(connection)
   return assert(connection:getCollectionNames())
+end
+
+local function get_collection(connection, name)
+  local query = mongo.BSON '{}'
+  local collection, err = assert(connection:getCollection(name))
+  if not collection then
+    return nil, err
+  end
+  return assert(collection:find(query))
+end
+
+local function create_collection(connection, name, opts)
+  return assert(connection:createCollection(name, opts))
 end
 
 function MongoConnector.new(kong_config)
@@ -178,7 +190,7 @@ do
       error("no connection")
     end
 
-    local table_names, err = get_table_names(conn)
+    local table_names, err = get_collection_names(conn)
     if not table_names then
       return nil, err
     end
@@ -192,12 +204,47 @@ do
     end
 
     if not schema_meta_table_exists then
-      return nil, "No 'schema_meta' table available, needs bootstrap"
+      -- no 'schema_meta' table available, needs bootstrap
+      return nil
     end
 
-    -- translate from line 725 and on
+    local conn = self:get_stored_connection()
+    if not conn then
+      conn = self:connect()
+    end
 
-    return {}
+    local records, err = get_collection(conn, SCHEMA_META_KEY)
+    if not records then
+      return nil, err
+    end
+
+    --local it = records:iterator()
+    --for record in it do
+    --  print(fmt('record: %s', record.correlationHandle))
+    --end
+
+    for record in records:iterator() do
+      if record.pending == null then
+        record.pending = nil
+      end
+    end
+
+    return records
+  end
+
+  function MongoConnector:schema_bootstrap()
+    local conn = self:get_stored_connection()
+    if not conn then
+      error("no connection")
+    end
+
+    -- TODO add validator - postgres/connector.lua l.783
+    -- TODO add auth - postgres/connector.lua l.759
+    local coll, err = create_collection(conn, SCHEMA_META_KEY, mongo.BSON '{}')
+    if not coll then
+      return nil, err
+    end
+
   end
 
 end
