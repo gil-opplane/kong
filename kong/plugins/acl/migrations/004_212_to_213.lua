@@ -33,4 +33,9 @@ return {
     up = "",
     teardown = ws_migration_teardown(operations.cassandra.teardown),
   },
+
+  mongo = {
+    up = "",
+    teardown = ws_migration_teardown(operations.mongo.teardown),
+  },
 }

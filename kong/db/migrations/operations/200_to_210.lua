@@ -493,6 +493,26 @@ local cassandra = {
 }
 
 
+
+local mongo = {
+  up = [[]],
+  teardown = {
+    ws_update_composite_cache_key = function(_, connector, table_name, is_partitioned)
+      print('Teardown ws_update_composite_cache_key 200_to_210')
+      return true
+    end,
+    ws_update_keys = function(_, connector, table_name, unique_keys, is_partitioned)
+      print('Teardown ws_update_keys 200_to_210')
+      return true
+    end,
+    fixup_plugin_config = function(_, connector, plugin_name, fixup_fn)
+      print('Teardown fixup_plugin_config 200_to_210')
+      return true
+    end
+  }
+}
+
+
 --------------------------------------------------------------------------------
 -- Higher-level operations for Workspace migration
 --------------------------------------------------------------------------------
@@ -586,6 +606,7 @@ end
 return {
   postgres = postgres,
   cassandra = cassandra,
+  mongo= mongo,
   ws_migrate_plugin = ws_migrate_plugin,
   cassandra_get_default_ws = cassandra_get_default_ws,
   cassandra_create_default_ws = cassandra_create_default_ws,

@@ -29,4 +29,8 @@ return {
       CREATE INDEX IF NOT EXISTS ON keyauth_credentials(consumer_id);
     ]],
   },
+
+  mongo = {
+    up = [[]]
+  }
 }

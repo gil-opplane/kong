@@ -154,4 +154,8 @@ return {
       CREATE INDEX IF NOT EXISTS ON oauth2_tokens(authenticated_userid);
     ]],
   },
+
+  mongo = {
+    up = [[]]
+  }
 }

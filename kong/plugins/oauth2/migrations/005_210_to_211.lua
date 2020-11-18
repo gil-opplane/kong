@@ -26,5 +26,12 @@ return {
     teardown = function(connector)
       return operations.clean_cassandra_fields(connector, plugin_entities)
     end
+  },
+
+  mongo = {
+    up = [[]],
+    teardown = function(connection)
+      print('Teardown oauth2/005_210_to_211')
+    end
   }
 }

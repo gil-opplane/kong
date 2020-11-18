@@ -50,4 +50,9 @@ return {
     up = ws_migration_up(operations.cassandra.up),
     teardown = ws_migration_teardown(operations.cassandra.teardown),
   },
+
+  mongo = {
+    up = ws_migration_up(operations.mongo.up),
+    teardown = ws_migration_teardown(operations.mongo.teardown),
+  },
 }

@@ -23,4 +23,8 @@ return {
       ALTER TABLE routes ADD https_redirect_status_code int;
     ]],
   },
+
+  mongo = {
+    up = [[]]
+  }
 }

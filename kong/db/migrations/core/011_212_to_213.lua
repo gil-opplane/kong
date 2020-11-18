@@ -7,5 +7,9 @@ return {
   },
   cassandra = {
     up = [[]],
+  },
+
+  mongo = {
+    up = [[]],
   }
 }

@@ -39,4 +39,8 @@ return {
       CREATE INDEX IF NOT EXISTS ON acls(cache_key);
     ]],
   },
+
+  mongo = {
+    up = [[]],
+  },
 }

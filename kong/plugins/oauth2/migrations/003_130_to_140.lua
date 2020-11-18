@@ -47,5 +47,9 @@ return {
     up = [[
       ALTER TABLE oauth2_credentials ADD tags set<text>;
     ]],
+  },
+
+  mongo = {
+    up = [[]]
   }
 }

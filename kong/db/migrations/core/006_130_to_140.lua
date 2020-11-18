@@ -20,4 +20,8 @@ return {
       ALTER TABLE upstreams ADD host_header text;
     ]],
   },
+
+  mongo = {
+    up = [[]],
+  }
 }

@@ -43,4 +43,8 @@ return {
       CREATE INDEX IF NOT EXISTS ON jwt_secrets(consumer_id);
     ]],
   },
+
+  mongo = {
+    up = [[]]
+  }
 }

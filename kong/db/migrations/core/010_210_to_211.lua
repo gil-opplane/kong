@@ -10,5 +10,13 @@ return {
     teardown = function(connector)
       return operations.clean_cassandra_fields(connector, operations.entities)
     end
+  },
+
+  mongo = {
+    up = [[]],
+    teardown = function(connector)
+      print('Teardown 010_210_to_211')
+      return true
+    end
   }
 }

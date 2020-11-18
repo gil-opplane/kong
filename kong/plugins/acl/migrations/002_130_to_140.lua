@@ -33,5 +33,9 @@ return {
     up = [[
       ALTER TABLE acls ADD tags set<text>;
     ]],
-  }
+  },
+
+  mongo = {
+    up = [[]],
+  },
 }

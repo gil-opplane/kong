@@ -1,7 +1,8 @@
-local log   = require "kong.cmd.utils.log"
-local mongo = require "mongo"
+local log         = require "kong.cmd.utils.log"
+local mongo       = require "mongo"
+local stringx     = require "pl.stringx"
 
-local fmt          = string.format
+local fmt         = string.format
 
 
 local MongoConnector   = {}
@@ -59,6 +60,20 @@ end
 
 local function create_index(connection, database, index_query)
   return assert(connection:command(database, mongo.BSON(index_query)))
+end
+
+-- specific to 'schema_meta' records
+local function convert_userdata_to_table(userdata)
+  local record, records = {}
+  for rec in userdata:iterator() do
+    record.key = rec.key
+    record.subsystem = rec.subsystem
+    record.last_executed = rec.last_executed
+    record.executed = rec.executed
+    record.pending = rec.pending
+    table.insert(records, record)
+  end
+  return not records and {} or records
 end
 
 function MongoConnector.new(kong_config)
@@ -131,6 +146,7 @@ function MongoConnector:init()
 
   local info = get_server_info(client, self.config.database)
   self.server_info = info
+  self.major_minor_version = self.server_info.version
 
   return true
 end
@@ -223,7 +239,7 @@ function MongoConnector:setup_locks(_,_)
     return nil, err
   end
 
-  logger.debug("successfully created 'locks' table")
+  log.debug("successfully created 'locks' table")
 
   return true
 end
@@ -276,9 +292,9 @@ do
 
     local db = conn:getDatabase(self.config.database)
 
-    local records
-    records, err = get_collection(db, SCHEMA_META_KEY)
-    if not records then
+    local userdata
+    userdata, err = get_collection(db, SCHEMA_META_KEY)
+    if not userdata then
       return nil, err
     end
 
@@ -287,7 +303,9 @@ do
     --  print(fmt('record: %s', record.correlationHandle))
     --end
 
-    for record in records:iterator() do
+    local records = convert_userdata_to_table(userdata)
+    log.debug('records: ', records)
+    for _, record in ipairs(records) do
       if record.pending == null then
         record.pending = nil
       end
@@ -346,6 +364,28 @@ do
     end
 
     return true
+  end
+
+  function MongoConnector:run_up_migration(name, up)
+    if type(name) ~= "string" then
+      error("name must be a string", 2)
+    end
+
+    if type(up) ~= "string" then
+      error("up_sql must be a string", 2)
+    end
+
+    local conn = self:get_stored_connection()
+    if not conn then
+      error("no connection")
+    end
+
+    local script = stringx.strip(up)
+    log.debug("script", script)
+
+    -- start session, then start transaction
+    -- if any creation fails inside transaction, abort
+    -- otherwise, commit transaction
   end
 
 end

@@ -31,4 +31,8 @@ return {
       CREATE INDEX IF NOT EXISTS ON basicauth_credentials(consumer_id);
     ]],
   },
+
+  mongo = {
+    up = [[]],
+  },
 }

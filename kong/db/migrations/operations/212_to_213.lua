@@ -47,6 +47,14 @@ local cassandra = {
 
 }
 
+local mongo = {
+
+  up = [[]],
+  teardown = {
+    ws_update_composite_cache_key = operations_200_210.mongo.teardown.ws_update_composite_cache_key,
+  }
+}
+
 
 --------------------------------------------------------------------------------
 -- Higher-level operations for Workspace migration

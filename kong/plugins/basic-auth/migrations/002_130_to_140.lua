@@ -33,5 +33,9 @@ return {
     up = [[
       ALTER TABLE basicauth_credentials ADD tags set<text>;
     ]],
-  }
+  },
+
+  mongo = {
+    up = [[]],
+  },
 }

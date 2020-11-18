@@ -26,16 +26,16 @@ local plugins = {
   "aws-lambda",
   "request-termination",
   -- external plugins
-  "azure-functions",
-  "zipkin",
-  "pre-function",
-  "post-function",
-  "prometheus",
-  "proxy-cache",
-  "session",
-  "acme",
-  "grpc-web",
-  "grpc-gateway",
+--  "azure-functions",
+--  "zipkin",
+--  "pre-function",
+--  "post-function",
+--  "prometheus",
+--  "proxy-cache",
+--  "session",
+--  "acme",
+--  "grpc-web",
+--  "grpc-gateway",
 }
 
 local plugin_map = {}
@@ -158,7 +158,10 @@ local constants = {
     CASSANDRA = {
       MIN = "3.0",
       DEPRECATED = "2.2",
-    }
+    },
+    MONGO = {
+      MIN = "4.4",
+    },
   },
   PROTOCOLS = protocols,
   PROTOCOLS_WITH_SUBSYSTEM = protocols_with_subsystem,

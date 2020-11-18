@@ -33,5 +33,9 @@ return {
     up = [[
       ALTER TABLE jwt_secrets ADD tags set<text>;
     ]],
+  },
+
+  mongo = {
+    up = [[]]
   }
 }

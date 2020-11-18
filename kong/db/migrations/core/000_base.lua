@@ -422,4 +422,30 @@ return {
       );
     ]],
   },
+
+  mongo = {
+    up = [[
+      tbl
+      name::cluster_events
+      val::
+      {
+        "bsonType": "object",
+        "required": ["channel","at", "node_id", "id"],
+        "properties": {
+          "channel": { "bsonType": "string" },
+          "at": { "bsonType": "timestamp" },
+          "node_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "data": { "bsonType": "string" },
+          "nbf": { "bsonType": "timestamp" },
+          "expire_at": { "bsonType": "timestamp" },
+      }
+      idx::
+      [
+        { "key": { "channel": 1, "at": 1, "node_id": 1, "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "expire_at": 1 }, "name": "ttl", "expireAfterSeconds": 86400 }
+      ]
+      /tbl
+    ]],
+  },
 }
