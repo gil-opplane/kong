@@ -433,11 +433,12 @@ return {
         "properties": {
           "channel": { "bsonType": "string" },
           "at": { "bsonType": "timestamp" },
-          "node_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
-          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "node_id": { "bsonType": "string", "pattern": "^urn:uuid" },
+          "id": { "bsonType": "string", "pattern": "^urn:uuid" },
           "data": { "bsonType": "string" },
           "nbf": { "bsonType": "timestamp" },
           "expire_at": { "bsonType": "timestamp" }
+        }
       }
       @index#[
         { "key": { "channel": 1, "at": 1, "node_id": 1, "id": 1 }, "name": "primary_key", "unique": true },
@@ -451,7 +452,7 @@ return {
         "required": ["partition", "id"],
         "properties": {
           "partition": { "bsonType": "string" },
-          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "id": { "bsonType": "string", "pattern": "^urn:uuid" },
           "created_at": { "bsonType": "timestamp" },
           "updated_at": { "bsonType": "timestamp" },
           "name": { "bsonType": "string" },
@@ -477,7 +478,7 @@ return {
         "required": ["partition", "id"],
         "properties": {
           "partition": { "bsonType": "string" },
-          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "id": { "bsonType": "string", "pattern": "^urn:uuid" },
           "created_at": { "bsonType": "timestamp" },
           "updated_at": { "bsonType": "timestamp" },
           "name": { "bsonType": "string" },
@@ -490,7 +491,7 @@ return {
           "destinations": { "bsonType": "array", "items": { "bsonType": "string" } },
           "preserve_host": { "bsonType": "bool" },
           "strip_path": { "bsonType": "bool" },
-          "service_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "service_id": { "bsonType": "string", "pattern": "^urn:uuid" },
           "regex_priority": { "bsonType": "int" }
         }
       }
@@ -507,9 +508,9 @@ return {
         "required": ["partition", "id"],
         "properties": {
           "partition": { "bsonType": "string" },
-          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "id": { "bsonType": "string", "pattern": "^urn:uuid" },
           "name": { "bsonType": "string" },
-          "certificate_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "certificate_id": { "bsonType": "string", "pattern": "^urn:uuid" },
           "created_at": { "bsonType": "timestamp" }
         }
       }
@@ -526,7 +527,7 @@ return {
         "required": ["partition", "id"],
         "properties": {
           "partition": { "bsonType": "string" },
-          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "id": { "bsonType": "string", "pattern": "^urn:uuid" },
           "cert": { "bsonType": "string" },
           "key": { "bsonType": "string" },
           "created_at": { "bsonType": "timestamp" }
@@ -542,7 +543,7 @@ return {
         "bsonType": "object",
         "required": ["id"],
         "properties": {
-          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "id": { "bsonType": "string", "pattern": "^urn:uuid" },
           "created_at": { "bsonType": "timestamp" },
           "username": { "bsonType": "string" },
           "custom_id": { "bsonType": "string" }
@@ -560,11 +561,11 @@ return {
         "bsonType": "object",
         "required": ["id"],
         "properties": {
-          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "id": { "bsonType": "string", "pattern": "^urn:uuid" },
           "created_at": { "bsonType": "timestamp" },
-          "route_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
-          "service_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
-          "consumer_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "route_id": { "bsonType": "string", "pattern": "^urn:uuid" },
+          "service_id": { "bsonType": "string", "pattern": "^urn:uuid" },
+          "consumer_id": { "bsonType": "string", "pattern": "^urn:uuid" },
           "name": { "bsonType": "string" },
           "config": { "bsonType": "string" },
           "enabled": { "bsonType": "bool" },
@@ -588,7 +589,7 @@ return {
         "bsonType": "object",
         "required": ["id"],
         "properties": {
-          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "id": { "bsonType": "string", "pattern": "^urn:uuid" },
           "created_at": { "bsonType": "timestamp" },
           "hash_fallback": { "bsonType": "string" },
           "hash_fallback_header": { "bsonType": "string" },
@@ -612,10 +613,10 @@ return {
         "bsonType": "object",
         "required": ["id"],
         "properties": {
-          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "id": { "bsonType": "string", "pattern": "^urn:uuid" },
           "created_at": { "bsonType": "timestamp" },
           "target": { "bsonType": "string" },
-          "upstream_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "upstream_id": { "bsonType": "string", "pattern": "^urn:uuid" },
           "weight": { "bsonType": "int" }
         }
       }

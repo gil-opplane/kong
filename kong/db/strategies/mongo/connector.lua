@@ -65,16 +65,17 @@ local function create_collection(client, database, name, validator)
   return assert(db:createCollection(name, validator))
 end
 
-local function update_collection(client, database, name, validator)
-  local query = fmt([[{
-    "collMod": %s,
-    "validator": %s
-  }]],name, validator)
-  return assert(client:command(database, query)):value()
-end
-
 local function create_index(connection, database, index_query)
   return assert(connection:command(database, mongo.BSON(index_query)))
+end
+
+local function update_collection(client, database, name, validator)
+  local query = fmt([[{
+    "collMod": "%s",
+    "validator": %s
+  }]], name, validator)
+  log.debug(fmt("query: %s", query))
+  return assert(client:command(database, query)):value()
 end
 
 -- specific to 'schema_meta' records
@@ -411,68 +412,68 @@ do
 
     local script = stringx.strip(up)
 
-    --local session = conn:startSession()
-    --session:startTransaction()
-    -- start session, then start transaction
-    -- if any creation fails inside transaction, abort
-    -- otherwise, commit transaction
-    try(function()
-      local tables = split(script, "([^%%]+)", function(s) return s ~= "" end)
-      for _, table in ipairs(tables) do
-        local fields = split(table, "([^@]+)", function (s) return s ~= "" end)
-        local table_struct = {}
-        for _, data in ipairs(fields) do
-          local keyval = split(data, "([^#]+)", function (s) return s ~= "" end)
-          -- insert key-value pairs for 'name', 'validator' and 'index'
-          table_struct[keyval[1]] = keyval[2]
-        end
-
-        local validator = table_struct.validator and fmt('"validator": { "$jsonSchema": %s }', table_struct.validator) or ''
-        local index = table_struct.index and fmt('{ "createIndexes": %s, "indexes": %s}', table_struct.name, table_struct.index) or ''
-        local query = table_struct.query and table_struct.query or ''
-
-
-        local function create()
-          local coll
-          coll , err = create_collection(conn, self.config.database, table_struct.name, validator)
-          if not coll then
-            error(err)
-          end
-
-          local idx
-          idx, err = create_index(conn, self.config.database, index)
-          if not idx then
-            error(err)
-          end
-
-          log.debug(fmt("successfully created %s collection", table_struct.name))
-        end
-
-        local function update()
-          local coll
-          coll , err = update_collection(conn, self.config.database, table_struct.name, validator)
-          if not coll then
-            error(err)
-          end
-
-          log.debug(fmt("successfully updated %s collection", table_struct.name))
-        end
-
-        local qt = table_struct.querytype
-        local result = qt == 'create' and create() or (qt == 'update' and update()) or nil
-        return result
+    local tables = split(script, "([^%%]+)", function(s) return s ~= "" end)
+    for _, table in ipairs(tables) do
+      local fields = split(table, "([^@]+)", function (s) return s ~= "" end)
+      local table_struct = {}
+      for _, data in ipairs(fields) do
+        local keyval = split(data, "([^#]+)", function (s) return s ~= "" end)
+        -- insert key-value pairs for 'name', 'validator' and 'index'
+        table_struct[keyval[1]] = keyval[2]
       end
 
-      --session:commitTransaction()
 
-    end,function(e)
-      --session:abortTransaction()
-      return nil, e
-    end)
+      local qt = table_struct.querytype
+      if qt == 'create' then
+
+        local validator = table_struct.validator and fmt('{ "validator": { "$jsonSchema": %s } }', table_struct.validator) or ''
+        local index = table_struct.index and fmt('{ "createIndexes": "%s", "indexes": %s}', table_struct.name, table_struct.index) or ''
+
+        local coll , err = create_collection(conn, self.config.database, table_struct.name, validator)
+        if not coll then
+          return nil, err
+        end
+
+        local idx
+        idx, err = create_index(conn, self.config.database, index)
+        if not idx then
+          error(err)
+        end
+        log.debug(fmt("successfully created %s collection", table_struct.name))
+
+      elseif qt == 'update' then
+
+        local validator = table_struct.validator and fmt('{ "$jsonSchema": %s }', table_struct.validator) or ''
+
+        local coll , err = update_collection(conn, self.config.database, table_struct.name, validator)
+        if not coll then
+          return nil, err
+        end
+
+        log.debug(fmt("successfully updated %s collection", table_struct.name))
+      end
+
+    end
 
     return true
   end
 
+  function MongoConnector:record_migration(subsystem, name, state)
+    if type(subsystem) ~= "string" then
+      error("subsystem must be a string", 2)
+    end
+
+    if type(name) ~= "string" then
+      error("name must be a string", 2)
+    end
+
+    local conn = self:get_stored_connection()
+    if not conn then
+      error("no connection")
+    end
+
+    return true
+  end
 end
 
 return MongoConnector
