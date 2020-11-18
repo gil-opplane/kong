@@ -43,26 +43,34 @@ local function get_server_info(client, database)
   return assert(client:command(database, '{"buildInfo":1}')):value()
 end
 
-local function get_collection_names(connection, database)
-  local db, err = assert(connection:getDatabase(database))
+local function get_collection_names(client, database)
+  local db, err = assert(client:getDatabase(database))
   if not db then
     return nil, err
   end
   return assert(db:getCollectionNames())
 end
 
-local function get_collection(connection, name)
+local function get_collection(database, name)
   local query = mongo.BSON '{}'
-  local collection, err = assert(connection:getCollection(name))
+  local collection, err = assert(database:getCollection(name))
   if not collection then
     return nil, err
   end
   return assert(collection:find(query))
 end
 
-local function create_collection(connection, database, name, opts)
-  local db = connection:getDatabase(database)
-  return assert(db:createCollection(name, opts))
+local function create_collection(client, database, name, validator)
+  local db = client:getDatabase(database)
+  return assert(db:createCollection(name, validator))
+end
+
+local function update_collection(client, database, name, validator)
+  local query = fmt([[{
+    "collMod": %s,
+    "validator": %s
+  }]],name, validator)
+  return assert(client:command(database, query)):value()
 end
 
 local function create_index(connection, database, index_query)
@@ -403,8 +411,8 @@ do
 
     local script = stringx.strip(up)
 
-    local session = conn:startSession()
-    session:startTransaction()
+    --local session = conn:startSession()
+    --session:startTransaction()
     -- start session, then start transaction
     -- if any creation fails inside transaction, abort
     -- otherwise, commit transaction
@@ -421,26 +429,44 @@ do
 
         local validator = table_struct.validator and fmt('"validator": { "$jsonSchema": %s }', table_struct.validator) or ''
         local index = table_struct.index and fmt('{ "createIndexes": %s, "indexes": %s}', table_struct.name, table_struct.index) or ''
+        local query = table_struct.query and table_struct.query or ''
 
-        local coll, err = create_collection(conn, self.config.database, table_struct.name, validator)
-        if not coll then
-          error(err)
+
+        local function create()
+          local coll
+          coll , err = create_collection(conn, self.config.database, table_struct.name, validator)
+          if not coll then
+            error(err)
+          end
+
+          local idx
+          idx, err = create_index(conn, self.config.database, index)
+          if not idx then
+            error(err)
+          end
+
+          log.debug(fmt("successfully created %s collection", table_struct.name))
         end
 
-        local idx
-        idx, err = create_index(conn, self.config.database, index)
-        if not idx then
-          error(err)
+        local function update()
+          local coll
+          coll , err = update_collection(conn, self.config.database, table_struct.name, validator)
+          if not coll then
+            error(err)
+          end
+
+          log.debug(fmt("successfully updated %s collection", table_struct.name))
         end
 
-        log.debug(fmt("successfully created %s collection", table_struct.name))
-
+        local qt = table_struct.querytype
+        local result = qt == 'create' and create() or (qt == 'update' and update()) or nil
+        return result
       end
 
-      session:commitTransaction()
+      --session:commitTransaction()
 
     end,function(e)
-      session:abortTransaction()
+      --session:abortTransaction()
       return nil, e
     end)
 

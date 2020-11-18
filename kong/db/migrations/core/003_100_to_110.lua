@@ -333,6 +333,172 @@ return {
   },
 
   mongo = {
-    up = [[]]
+    up = [[
+      @name#plugins
+      @querytype#update
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "created_at": { "bsonType": "timestamp" },
+          "route_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "service_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "consumer_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "name": { "bsonType": "string" },
+          "config": { "bsonType": "string" },
+          "enabled": { "bsonType": "bool" },
+          "cache_key": { "bsonType": "string" },
+          "run_on": { "bsonType": "string" },
+          "tags": { "bsonType": "array", "items": { "bsonType": "string" } },
+          "protocols": { "bsonType": "array", "items": { "bsonType": "string" } }
+      }
+      %
+      @name#routes
+      @querytype#update
+      @validator#{
+        "bsonType": "object",
+        "required": ["partition", "id"],
+        "properties": {
+          "partition": { "bsonType": "string" },
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "created_at": { "bsonType": "timestamp" },
+          "updated_at": { "bsonType": "timestamp" },
+          "name": { "bsonType": "string" },
+          "hosts": { "bsonType": "array", "items": { "bsonType": "string" } },
+          "paths": { "bsonType": "array", "items": { "bsonType": "string" } },
+          "methods": { "bsonType": "array", "items": { "bsonType": "string" } },
+          "protocols": { "bsonType": "array", "items": { "bsonType": "string" } },
+          "snis": { "bsonType": "array", "items": { "bsonType": "string" } },
+          "sources": { "bsonType": "array", "items": { "bsonType": "string" } },
+          "destinations": { "bsonType": "array", "items": { "bsonType": "string" } },
+          "preserve_host": { "bsonType": "bool" },
+          "strip_path": { "bsonType": "bool" },
+          "service_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "regex_priority": { "bsonType": "int" },
+          "tags": { "bsonType": "array", "items": { "bsonType": "string" } }
+        }
+      }
+      %
+      @name#services
+      @querytype#update
+      @validator#{
+        "bsonType": "object",
+        "required": ["partition", "id"],
+        "properties": {
+          "partition": { "bsonType": "string" },
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "created_at": { "bsonType": "timestamp" },
+          "updated_at": { "bsonType": "timestamp" },
+          "name": { "bsonType": "string" },
+          "host": { "bsonType": "string" },
+          "path": { "bsonType": "string" },
+          "port": { "bsonType": "int" },
+          "protocol": { "bsonType": "string" },
+          "connect_timeout": { "bsonType": "int" },
+          "read_timeout": { "bsonType": "int" },
+          "write_timeout": { "bsonType": "int" },
+          "retries": { "bsonType": "int" },
+          "tags": { "bsonType": "array", "items": { "bsonType": "string" } }
+        }
+      }
+      %
+      @name#certificates
+      @querytype#update
+      @validator#{
+        "bsonType": "object",
+        "required": ["partition", "id"],
+        "properties": {
+          "partition": { "bsonType": "string" },
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "cert": { "bsonType": "string" },
+          "key": { "bsonType": "string" },
+          "created_at": { "bsonType": "timestamp" },
+          "tags": { "bsonType": "array", "items": { "bsonType": "string" } }
+        }
+      }
+      %
+      @name#snis
+      @querytype#update
+      @validator#{
+        "bsonType": "object",
+        "required": ["partition", "id"],
+        "properties": {
+          "partition": { "bsonType": "string" },
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "name": { "bsonType": "string" },
+          "certificate_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "created_at": { "bsonType": "timestamp" },
+          "tags": { "bsonType": "array", "items": { "bsonType": "string" } }
+        }
+      }
+      %
+      @name#consumers
+      @querytype#update
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "created_at": { "bsonType": "timestamp" },
+          "username": { "bsonType": "string" },
+          "custom_id": { "bsonType": "string" },
+          "tags": { "bsonType": "array", "items": { "bsonType": "string" } }
+        }
+      }
+      %
+      @name#upstreams
+      @querytype#update
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "created_at": { "bsonType": "timestamp" },
+          "hash_fallback": { "bsonType": "string" },
+          "hash_fallback_header": { "bsonType": "string" },
+          "hash_on": { "bsonType": "string" },
+          "hash_on_cookie": { "bsonType": "string" },
+          "hash_on_cookie_path": { "bsonType": "string" },
+          "hash_on_header": { "bsonType": "string" },
+          "healthchecks": { "bsonType": "string" },
+          "name": { "bsonType": "string" },
+          "slots": { "bsonType": "int" },
+          "tags": { "bsonType": "array", "items": { "bsonType": "string" } }
+        }
+      }
+      %
+      @name#targets
+      @querytype#update
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "created_at": { "bsonType": "timestamp" },
+          "target": { "bsonType": "string" },
+          "upstream_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "weight": { "bsonType": "int" },
+          "tags": { "bsonType": "array", "items": { "bsonType": "string" } }
+        }
+      }
+      %
+      @name#tags
+      @querytype#create
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "tag": { "bsonType": "string" },
+          "entity_name": { "bsonType": "string" },
+          "entity_id": { "bsonType": "string" },
+          "other_tags": { "bsonType": "array", "items": { "bsonType": "string" } }
+        }
+      }
+      @index#[
+        { "key": { "tag": 1, "entity_name": 1, "entity_id": 1 }, "name": "primary_key", "unique": true }
+      ]
+      %
+    ]]
   }
 }

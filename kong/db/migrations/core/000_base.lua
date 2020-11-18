@@ -426,6 +426,7 @@ return {
   mongo = {
     up = [[
       @name#cluster_events
+      @querytype#create
       @validator#{
         "bsonType": "object",
         "required": ["channel","at", "node_id", "id"],
@@ -436,7 +437,7 @@ return {
           "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
           "data": { "bsonType": "string" },
           "nbf": { "bsonType": "timestamp" },
-          "expire_at": { "bsonType": "timestamp" },
+          "expire_at": { "bsonType": "timestamp" }
       }
       @index#[
         { "key": { "channel": 1, "at": 1, "node_id": 1, "id": 1 }, "name": "primary_key", "unique": true },
@@ -444,6 +445,7 @@ return {
       ]
       %
       @name#services
+      @querytype#create
       @validator#{
         "bsonType": "object",
         "required": ["partition", "id"],
@@ -460,7 +462,7 @@ return {
           "connect_timeout": { "bsonType": "int" },
           "read_timeout": { "bsonType": "int" },
           "write_timeout": { "bsonType": "int" },
-          "retries": { "bsonType": "int" },
+          "retries": { "bsonType": "int" }
         }
       }
       @index#[
@@ -469,6 +471,7 @@ return {
       ]
       %
       @name#routes
+      @querytype#create
       @validator#{
         "bsonType": "object",
         "required": ["partition", "id"],
@@ -488,7 +491,7 @@ return {
           "preserve_host": { "bsonType": "bool" },
           "strip_path": { "bsonType": "bool" },
           "service_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
-          "regex_priority": { "bsonType": "int" },
+          "regex_priority": { "bsonType": "int" }
         }
       }
       @index#[
@@ -498,6 +501,7 @@ return {
       ]
       %
       @name#snis
+      @querytype#create
       @validator#{
         "bsonType": "object",
         "required": ["partition", "id"],
@@ -506,7 +510,7 @@ return {
           "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
           "name": { "bsonType": "string" },
           "certificate_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
-          "created_at": { "bsonType": "timestamp" },
+          "created_at": { "bsonType": "timestamp" }
         }
       }
       @index#[
@@ -516,6 +520,7 @@ return {
       ]
       %
       @name#certificates
+      @querytype#create
       @validator#{
         "bsonType": "object",
         "required": ["partition", "id"],
@@ -524,14 +529,15 @@ return {
           "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
           "cert": { "bsonType": "string" },
           "key": { "bsonType": "string" },
-          "created_at": { "bsonType": "timestamp" },
+          "created_at": { "bsonType": "timestamp" }
         }
       }
       @index#[
-        { "key": { "partition": 1, "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "partition": 1, "id": 1 }, "name": "primary_key", "unique": true }
       ]
       %
       @name#consumers
+      @querytype#create
       @validator#{
         "bsonType": "object",
         "required": ["id"],
@@ -539,16 +545,17 @@ return {
           "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
           "created_at": { "bsonType": "timestamp" },
           "username": { "bsonType": "string" },
-          "custom_id": { "bsonType": "string" },
+          "custom_id": { "bsonType": "string" }
         }
       }
       @index#[
         { "key": { "id": 1 }, "name": "primary_key", "unique": true },
         { "key": { "custom_id": 1 }, "name": "consumers_custom_id_idx" },
-        { "key": { "username": 1 }, "name": "consumers_username_idx" },
+        { "key": { "username": 1 }, "name": "consumers_username_idx" }
       ]
       %
       @name#plugins
+      @querytype#create
       @validator#{
         "bsonType": "object",
         "required": ["id"],
@@ -562,7 +569,7 @@ return {
           "config": { "bsonType": "string" },
           "enabled": { "bsonType": "bool" },
           "cache_key": { "bsonType": "string" },
-          "run_on": { "bsonType": "string" },
+          "run_on": { "bsonType": "string" }
         }
       }
       @index#[
@@ -572,10 +579,11 @@ return {
         { "key": { "service_id": 1 }, "name": "plugins_service_id_idx" },
         { "key": { "consumer_id": 1 }, "name": "plugins_consumer_id_idx" },
         { "key": { "cache_key": 1 }, "name": "plugins_cache_key_idx" },
-        { "key": { "run_on": 1 }, "name": "plugins_run_on_idx" },
+        { "key": { "run_on": 1 }, "name": "plugins_run_on_idx" }
       ]
       %
       @name#upstreams
+      @querytype#create
       @validator#{
         "bsonType": "object",
         "required": ["id"],
@@ -590,15 +598,16 @@ return {
           "hash_on_header": { "bsonType": "string" },
           "healthchecks": { "bsonType": "string" },
           "name": { "bsonType": "string" },
-          "slots": { "bsonType": "int" },
+          "slots": { "bsonType": "int" }
         }
       }
       @index#[
         { "key": { "id": 1 }, "name": "primary_key", "unique": true },
-        { "key": { "name": 1 }, "name": "upstreams_name_idx" },
+        { "key": { "name": 1 }, "name": "upstreams_name_idx" }
       ]
       %
       @name#targets
+      @querytype#create
       @validator#{
         "bsonType": "object",
         "required": ["id"],
@@ -607,27 +616,28 @@ return {
           "created_at": { "bsonType": "timestamp" },
           "target": { "bsonType": "string" },
           "upstream_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
-          "weight": { "bsonType": "int" },
+          "weight": { "bsonType": "int" }
         }
       }
       @index#[
         { "key": { "id": 1 }, "name": "primary_key", "unique": true },
         { "key": { "target": 1 }, "name": "targets_target_idx" },
-        { "key": { "upstream_id": 1 }, "name": "targets_upstream_id_idx" },
+        { "key": { "upstream_id": 1 }, "name": "targets_upstream_id_idx" }
       ]
       %
       @name#cluster_ca
+      @querytype#create
       @validator#{
         "bsonType": "object",
         "required": ["id"],
         "properties": {
           "pk": { "bsonType": "bool" },
           "key": { "bsonType": "string" },
-          "cert": { "bsonType": "string" },
+          "cert": { "bsonType": "string" }
         }
       }
       @index#[
-        { "key": { "pk": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "pk": 1 }, "name": "primary_key", "unique": true }
       ]
       %
     ]],
