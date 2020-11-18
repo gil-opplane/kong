@@ -425,10 +425,8 @@ return {
 
   mongo = {
     up = [[
-      tbl
-      name::cluster_events
-      val::
-      {
+      @name#cluster_events
+      @validator#{
         "bsonType": "object",
         "required": ["channel","at", "node_id", "id"],
         "properties": {
@@ -440,12 +438,35 @@ return {
           "nbf": { "bsonType": "timestamp" },
           "expire_at": { "bsonType": "timestamp" },
       }
-      idx::
-      [
+      @index#[
         { "key": { "channel": 1, "at": 1, "node_id": 1, "id": 1 }, "name": "primary_key", "unique": true },
         { "key": { "expire_at": 1 }, "name": "ttl", "expireAfterSeconds": 86400 }
       ]
-      /tbl
+      %
+      @name#services
+      @validator#{
+        "bsonType": "object",
+        "required": ["partition", "id"],
+        "properties": {
+          "partition": { "bsonType": "string" },
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "created_at": { "bsonType": "timestamp" },
+          "updated_at": { "bsonType": "timestamp" },
+          "name": { "bsonType": "string" },
+          "host": { "bsonType": "string" },
+          "path": { "bsonType": "string" },
+          "port": { "bsonType": "int" },
+          "protocol": { "bsonType": "string" },
+          "connect_timeout": { "bsonType": "int" },
+          "read_timeout": { "bsonType": "int" },
+          "write_timeout": { "bsonType": "int" },
+          "retries": { "bsonType": "int" },
+        }
+      }
+      @index#[
+        { "key": { "partition": 1, "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "name": 1 }, "name": "services_name_idx" }
+      ]
     ]],
   },
 }

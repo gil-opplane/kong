@@ -8,6 +8,13 @@ local fmt         = string.format
 local MongoConnector   = {}
 MongoConnector.__index = MongoConnector
 
+local function try(f, catch)
+  local status, exception = pcall(f)
+  if not status then
+    catch(exception)
+  end
+end
+
 local function build_url(config)
   local url = "mongodb://"
   if config.user and config.password then
@@ -74,6 +81,21 @@ local function convert_userdata_to_table(userdata)
     table.insert(records, record)
   end
   return not records and {} or records
+end
+
+local function split(str, pattern, condition)
+  local lines = {}
+  for match in str:gmatch(pattern) do
+    local trimmed = stringx.strip(match)
+    table.insert(lines, trimmed)
+  end
+  for i = #lines, 1, -1 do
+    local l = lines[i]
+    if condition and not condition(l, i) then
+      table.remove(lines, i)
+    end
+  end
+  return lines
 end
 
 function MongoConnector.new(kong_config)
@@ -304,7 +326,6 @@ do
     --end
 
     local records = convert_userdata_to_table(userdata)
-    log.debug('records: ', records)
     for _, record in ipairs(records) do
       if record.pending == null then
         record.pending = nil
@@ -381,11 +402,49 @@ do
     end
 
     local script = stringx.strip(up)
-    log.debug("script", script)
 
+    local session = conn:startSession()
+    session:startTransaction()
     -- start session, then start transaction
     -- if any creation fails inside transaction, abort
     -- otherwise, commit transaction
+    try(function()
+      local tables = split(script, "([^%%]+)", function(s) return s ~= "" end)
+      for _, table in ipairs(tables) do
+        local fields = split(table, "([^@]+)", function (s) return s ~= "" end)
+        local table_struct = {}
+        for _, data in ipairs(fields) do
+          local keyval = split(data, "([^#]+)", function (s) return s ~= "" end)
+          -- insert key-value pairs for 'name', 'validator' and 'index'
+          table_struct[keyval[1]] = keyval[2]
+        end
+
+        local validator = table_struct.validator and fmt('"validator": { "$jsonSchema": %s }', table_struct.validator) or ''
+        local index = table_struct.index and fmt('{ "createIndexes": %s, "indexes": %s}', table_struct.name, table_struct.index) or ''
+
+        local coll, err = create_collection(conn, self.config.database, table_struct.name, validator)
+        if not coll then
+          error(err)
+        end
+
+        local idx
+        idx, err = create_index(conn, self.config.database, index)
+        if not idx then
+          error(err)
+        end
+
+        log.debug(fmt("successfully created %s collection", table_struct.name))
+
+      end
+
+      session:commitTransaction()
+
+    end,function(e)
+      session:abortTransaction()
+      return nil, e
+    end)
+
+    return true
   end
 
 end
