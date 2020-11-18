@@ -467,6 +467,169 @@ return {
         { "key": { "partition": 1, "id": 1 }, "name": "primary_key", "unique": true },
         { "key": { "name": 1 }, "name": "services_name_idx" }
       ]
+      %
+      @name#routes
+      @validator#{
+        "bsonType": "object",
+        "required": ["partition", "id"],
+        "properties": {
+          "partition": { "bsonType": "string" },
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "created_at": { "bsonType": "timestamp" },
+          "updated_at": { "bsonType": "timestamp" },
+          "name": { "bsonType": "string" },
+          "hosts": { "bsonType": "array", "items": { "bsonType": "string" } },
+          "paths": { "bsonType": "array", "items": { "bsonType": "string" } },
+          "methods": { "bsonType": "array", "items": { "bsonType": "string" } },
+          "protocols": { "bsonType": "array", "items": { "bsonType": "string" } },
+          "snis": { "bsonType": "array", "items": { "bsonType": "string" } },
+          "sources": { "bsonType": "array", "items": { "bsonType": "string" } },
+          "destinations": { "bsonType": "array", "items": { "bsonType": "string" } },
+          "preserve_host": { "bsonType": "bool" },
+          "strip_path": { "bsonType": "bool" },
+          "service_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "regex_priority": { "bsonType": "int" },
+        }
+      }
+      @index#[
+        { "key": { "partition": 1, "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "service_id": 1 }, "name": "routes_service_id_idx" },
+        { "key": { "name": 1 }, "name": "routes_name_idx" }
+      ]
+      %
+      @name#snis
+      @validator#{
+        "bsonType": "object",
+        "required": ["partition", "id"],
+        "properties": {
+          "partition": { "bsonType": "string" },
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "name": { "bsonType": "string" },
+          "certificate_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "created_at": { "bsonType": "timestamp" },
+        }
+      }
+      @index#[
+        { "key": { "partition": 1, "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "certificate_id": 1 }, "name": "snis_certificate_id_idx" },
+        { "key": { "name": 1 }, "name": "snis_name_idx" }
+      ]
+      %
+      @name#certificates
+      @validator#{
+        "bsonType": "object",
+        "required": ["partition", "id"],
+        "properties": {
+          "partition": { "bsonType": "string" },
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "cert": { "bsonType": "string" },
+          "key": { "bsonType": "string" },
+          "created_at": { "bsonType": "timestamp" },
+        }
+      }
+      @index#[
+        { "key": { "partition": 1, "id": 1 }, "name": "primary_key", "unique": true },
+      ]
+      %
+      @name#consumers
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "created_at": { "bsonType": "timestamp" },
+          "username": { "bsonType": "string" },
+          "custom_id": { "bsonType": "string" },
+        }
+      }
+      @index#[
+        { "key": { "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "custom_id": 1 }, "name": "consumers_custom_id_idx" },
+        { "key": { "username": 1 }, "name": "consumers_username_idx" },
+      ]
+      %
+      @name#plugins
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "created_at": { "bsonType": "timestamp" },
+          "route_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "service_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "consumer_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "name": { "bsonType": "string" },
+          "config": { "bsonType": "string" },
+          "enabled": { "bsonType": "bool" },
+          "cache_key": { "bsonType": "string" },
+          "run_on": { "bsonType": "string" },
+        }
+      }
+      @index#[
+        { "key": { "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "name": 1 }, "name": "plugins_name_idx" },
+        { "key": { "route_id": 1 }, "name": "plugins_route_id_idx" },
+        { "key": { "service_id": 1 }, "name": "plugins_service_id_idx" },
+        { "key": { "consumer_id": 1 }, "name": "plugins_consumer_id_idx" },
+        { "key": { "cache_key": 1 }, "name": "plugins_cache_key_idx" },
+        { "key": { "run_on": 1 }, "name": "plugins_run_on_idx" },
+      ]
+      %
+      @name#upstreams
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "created_at": { "bsonType": "timestamp" },
+          "hash_fallback": { "bsonType": "string" },
+          "hash_fallback_header": { "bsonType": "string" },
+          "hash_on": { "bsonType": "string" },
+          "hash_on_cookie": { "bsonType": "string" },
+          "hash_on_cookie_path": { "bsonType": "string" },
+          "hash_on_header": { "bsonType": "string" },
+          "healthchecks": { "bsonType": "string" },
+          "name": { "bsonType": "string" },
+          "slots": { "bsonType": "int" },
+        }
+      }
+      @index#[
+        { "key": { "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "name": 1 }, "name": "upstreams_name_idx" },
+      ]
+      %
+      @name#targets
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "created_at": { "bsonType": "timestamp" },
+          "target": { "bsonType": "string" },
+          "upstream_id": { "bsonType": "string", "format": "uri", "pattern": "^urn:uuid" },
+          "weight": { "bsonType": "int" },
+        }
+      }
+      @index#[
+        { "key": { "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "target": 1 }, "name": "targets_target_idx" },
+        { "key": { "upstream_id": 1 }, "name": "targets_upstream_id_idx" },
+      ]
+      %
+      @name#cluster_ca
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "pk": { "bsonType": "bool" },
+          "key": { "bsonType": "string" },
+          "cert": { "bsonType": "string" },
+        }
+      }
+      @index#[
+        { "key": { "pk": 1 }, "name": "primary_key", "unique": true },
+      ]
+      %
     ]],
   },
 }
