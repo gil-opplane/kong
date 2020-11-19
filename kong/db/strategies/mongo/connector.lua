@@ -8,13 +8,6 @@ local fmt         = string.format
 local MongoConnector   = {}
 MongoConnector.__index = MongoConnector
 
-local function try(f, catch)
-  local status, exception = pcall(f)
-  if not status then
-    catch(exception)
-  end
-end
-
 local function build_url(config)
   local url = "mongodb://"
   if config.user and config.password then
@@ -60,22 +53,28 @@ local function get_collection(database, name)
   return assert(collection:find(query))
 end
 
-local function create_collection(client, database, name, validator)
+local function create_collection(client, database, config)
   local db = client:getDatabase(database)
-  return assert(db:createCollection(name, validator))
+  return assert(db:createCollection(config.name, config.validator))
 end
 
-local function create_index(connection, database, index_query)
-  return assert(connection:command(database, mongo.BSON(index_query)))
+local function create_index(connection, database, config)
+  return assert(connection:command(database, mongo.BSON(config.index)))
 end
 
-local function update_collection(client, database, name, validator)
+local function update_collection(client, database, config)
   local query = fmt([[{
     "collMod": "%s",
     "validator": %s
-  }]], name, validator)
+  }]], config.name, config.validator)
   log.debug(fmt("query: %s", query))
   return assert(client:command(database, query)):value()
+end
+
+local function add_user(client, database, config)
+  local db = client:getDatabase(database)
+  print(fmt("config: %s", config.roles))
+  return assert(db:addUser(fmt("%s",config.user), fmt("%s",config.password), mongo.BSON(config.roles)))
 end
 
 -- specific to 'schema_meta' records
@@ -241,7 +240,9 @@ function MongoConnector:setup_locks(_,_)
   end
 
   log.debug("creating 'locks' table if not existing...")
-  local coll, err = create_collection(conn, self.config.database, 'locks', [[{
+  local conf = {
+    name = 'locks',
+    validator = [[{
       "validator": {
         "$jsonSchema": {
           "bsonType": "object",
@@ -253,19 +254,23 @@ function MongoConnector:setup_locks(_,_)
           }
         }
       }
-    }]])
+    }]],
+  }
+  local coll, err = create_collection(conn, self.config.database, conf)
   if not coll then
     return nil, err
   end
 
-  local query = fmt([[{
-      "createIndexes": "locks",
-      "indexes": [
-        { "key": { "ttl": 1 }, "name": "locks_ttl_idx" }
-      ]
-    }]], SCHEMA_META_KEY)
+  local config = {
+    index = fmt([[{
+        "createIndexes": "locks",
+        "indexes": [
+          { "key": { "ttl": 1 }, "name": "locks_ttl_idx" }
+        ]
+      }]], SCHEMA_META_KEY)
+  }
   local idx
-  idx, err = create_index(conn, self.config.database, query)
+  idx, err = create_index(conn, self.config.database, config)
   if not idx then
     return nil, err
   end
@@ -350,9 +355,9 @@ do
       error("no connection")
     end
 
-    -- TODO add authz - postgres/connector.lua l.759
-
-    local coll, err = create_collection(conn, self.config.database, SCHEMA_META_KEY, [[{
+    local collconf = {
+      name = SCHEMA_META_KEY,
+      validator = [[{
       "validator": {
         "$jsonSchema": {
           "bsonType": "object",
@@ -366,26 +371,37 @@ do
           }
         }
       }
-    }]])
+    }]]
+    }
+    local coll, err = create_collection(conn, self.config.database, collconf)
     if not coll then
       return nil, err
     end
 
     log.debug(fmt("successfully created %s collection", SCHEMA_META_KEY))
 
-    local query = fmt([[{
-      "createIndexes": "%s",
-      "indexes": [
-        { "key": { "key": 1, "subsystem": 1 }, "name": "primary_key", "unique": true }
-      ]
-    }]], SCHEMA_META_KEY)
+    local idxconf = {
+      index = fmt([[{
+          "createIndexes": "%s",
+          "indexes": [
+            { "key": { "key": 1, "subsystem": 1 }, "name": "primary_key", "unique": true }
+          ]
+        }]], SCHEMA_META_KEY)
+    }
     local idx
-    idx, err = create_index(conn, self.config.database, query)
+    idx, err = create_index(conn, self.config.database, idxconf)
     if not idx then
       return nil, err
     end
 
     log.debug(fmt("set 'key' and 'subsystem' as primary key for %s", SCHEMA_META_KEY))
+
+    local user
+    local userconf = {
+      user = self.config.user,
+      password = self.config.password,
+      roles = fmt('[ { "role": "readWrite", "db": "%s" } ]', self.config.database)
+    }
 
     local ok
     ok, err = self:setup_locks(default_locks_ttl, true)
@@ -429,13 +445,18 @@ do
         local validator = table_struct.validator and fmt('{ "validator": { "$jsonSchema": %s } }', table_struct.validator) or ''
         local index = table_struct.index and fmt('{ "createIndexes": "%s", "indexes": %s}', table_struct.name, table_struct.index) or ''
 
-        local coll , err = create_collection(conn, self.config.database, table_struct.name, validator)
+        local config = {
+          name = table_struct.name,
+          validator = validator,
+          index = index
+        }
+        local coll , err = create_collection(conn, self.config.database, config)
         if not coll then
           return nil, err
         end
 
         local idx
-        idx, err = create_index(conn, self.config.database, index)
+        idx, err = create_index(conn, self.config.database, config)
         if not idx then
           error(err)
         end
@@ -445,7 +466,11 @@ do
 
         local validator = table_struct.validator and fmt('{ "$jsonSchema": %s }', table_struct.validator) or ''
 
-        local coll , err = update_collection(conn, self.config.database, table_struct.name, validator)
+        local config = {
+          name = table_struct.name,
+          validator = validator
+        }
+        local coll , err = update_collection(conn, self.config.database, config)
         if not coll then
           return nil, err
         end
