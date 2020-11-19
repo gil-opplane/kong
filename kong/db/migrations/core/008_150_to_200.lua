@@ -64,9 +64,13 @@ return {
       local database    = coordinator.database
       local coll_name   = 'plugins'
 
-      local index_name  = 'plugins_run_on_idx'
+      local drop_index = [[{
+        "dropIndexes": "plugins",
+        "index": "plugins_run_on_idx"
+      }]]
+
       local collection = client:getCollection(database, coll_name)
-      local _, err = collection:dropIndex(index_name)
+      local _, err = client:command(database, drop_index)
       if err then
         return nil, err
       end

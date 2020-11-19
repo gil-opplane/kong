@@ -36,49 +36,14 @@ local function get_server_info(client, database)
   return assert(client:command(database, '{"buildInfo":1}')):value()
 end
 
-local function get_collection_names(client, database)
-  local db, err = assert(client:getDatabase(database))
-  if not db then
-    return nil, err
-  end
-  return assert(db:getCollectionNames())
-end
-
-local function get_collection(database, name)
-  local query = mongo.BSON '{}'
-  local collection, err = assert(database:getCollection(name))
-  if not collection then
-    return nil, err
-  end
-  return assert(collection:find(query))
-end
-
-local function create_collection(client, database, config)
-  local db = client:getDatabase(database)
-  return assert(db:createCollection(config.name, config.validator))
-end
-
-local function create_index(connection, database, config)
-  return assert(connection:command(database, mongo.BSON(config.index)))
-end
-
-local function update_collection(client, database, config)
-  local query = fmt([[{
-    "collMod": "%s",
-    "validator": %s
-  }]], config.name, config.validator)
-  log.debug(fmt("query: %s", query))
-  return assert(client:command(database, query)):value()
-end
-
-local function add_user(client, database, config)
-  local db = client:getDatabase(database)
-  print(fmt("config: %s", config.roles))
-  return assert(db:addUser(fmt("%s",config.user), fmt("%s",config.password), mongo.BSON(config.roles)))
-end
+--local function add_user(client, database, config)
+--  local db = client:getDatabase(database)
+--  print(fmt("config: %s", config.roles))
+--  return assert(db:addUser(fmt("%s",config.user), fmt("%s",config.password), mongo.BSON(config.roles)))
+--end
 
 -- specific to 'schema_meta' records
-local function convert_userdata_to_table(userdata)
+local function convert_schema_meta(userdata)
   local record, records = {}
   for rec in userdata:iterator() do
     record.key = rec.key
@@ -91,17 +56,11 @@ local function convert_userdata_to_table(userdata)
   return not records and {} or records
 end
 
-local function split(str, pattern, condition)
+local function split(str, pattern)
   local lines = {}
   for match in str:gmatch(pattern) do
     local trimmed = stringx.strip(match)
     table.insert(lines, trimmed)
-  end
-  for i = #lines, 1, -1 do
-    local l = lines[i]
-    if condition and not condition(l, i) then
-      table.remove(lines, i)
-    end
   end
   return lines
 end
@@ -239,36 +198,33 @@ function MongoConnector:close()
 end
 
 function MongoConnector:setup_locks(_,_)
-  local conn = self:get_stored_connection()
-  if not conn then
+  local connection = self:get_stored_connection()
+  if not connection then
     error("no connection")
   end
 
-  conn = conn.client
+  local client      = connection.client
+  local database    = connection.database
+
+  local db = client:getDatabase(database)
 
   log.debug("creating 'locks' table if not existing...")
-  local conf = {
+
+  local locks_conf = {
     name = 'locks',
     validator = [[{
-      "validator": {
-        "$jsonSchema": {
-          "bsonType": "object",
-          "required": ["key"],
-          "properties": {
-            "key": { "bsonType": "string" },
-            "owner": { "bsonType": "string" },
-            "ttl": { "bsonType": "timestamp" }
+        "validator": {
+          "$jsonSchema": {
+            "bsonType": "object",
+            "required": ["key"],
+            "properties": {
+              "key": { "bsonType": "string" },
+              "owner": { "bsonType": "string" },
+              "ttl": { "bsonType": "timestamp" }
+            }
           }
         }
-      }
-    }]],
-  }
-  local coll, err = create_collection(conn, self.config.database, conf)
-  if not coll then
-    return nil, err
-  end
-
-  local config = {
+      }]],
     index = fmt([[{
         "createIndexes": "locks",
         "indexes": [
@@ -276,13 +232,18 @@ function MongoConnector:setup_locks(_,_)
         ]
       }]], SCHEMA_META_KEY)
   }
-  local idx
-  idx, err = create_index(conn, self.config.database, config)
+
+  local coll, err = db:createCollection(locks_conf.name, mongo.BSON(locks_conf.validator))
+  if not coll then
+    return nil, err
+  end
+
+  local idx, err = client:command(database, mongo.BSON(locks_conf.index))
   if not idx then
     return nil, err
   end
 
-  log.debug("successfully created 'locks' table")
+  log.verbose("successfully created 'locks' table")
 
   return true
 end
@@ -310,14 +271,17 @@ do
   local SCHEMA_META_KEY = "schema_meta"
 
   function MongoConnector:schema_migrations()
-    local conn = self:get_stored_connection()
-    if not conn then
+    local connection = self:get_stored_connection()
+    if not connection then
       error("no connection")
     end
 
-    conn = conn.client
+    local client      = connection.client
+    local database    = connection.database
 
-    local table_names, err = get_collection_names(conn, self.config.database)
+    local db = client:getDatabase(database)
+
+    local table_names, err = db:getCollectionNames()
     if not table_names then
       return nil, err
     end
@@ -335,20 +299,20 @@ do
       return nil
     end
 
-    local db = conn:getDatabase(self.config.database)
+
+    local collection
+    collection, err = assert(db:getCollection(name))
+    if not collection then
+      return nil, err
+    end
 
     local userdata
-    userdata, err = get_collection(db, SCHEMA_META_KEY)
+    userdata, err = collection:find(mongo.BSON '{}')
     if not userdata then
       return nil, err
     end
 
-    --local it = records:iterator()
-    --for record in it do
-    --  print(fmt('record: %s', record.correlationHandle))
-    --end
-
-    local records = convert_userdata_to_table(userdata)
+    local records = convert_schema_meta(userdata)
     for _, record in ipairs(records) do
       if record.pending == null then
         record.pending = nil
@@ -359,16 +323,15 @@ do
   end
 
   function MongoConnector:schema_bootstrap(_, default_locks_ttl)
-    local conn = self:get_stored_connection()
-    if not conn then
+    local connection = self:get_stored_connection()
+    if not connection then
       error("no connection")
     end
 
-    conn = conn.client
+    local client      = connection.client
+    local database    = connection.database
 
-    local collconf = {
-      name = SCHEMA_META_KEY,
-      validator = [[{
+    local validator   = [[{
       "validator": {
         "$jsonSchema": {
           "bsonType": "object",
@@ -383,39 +346,36 @@ do
         }
       }
     }]]
-    }
-    local coll, err = create_collection(conn, self.config.database, collconf)
+
+    local db = client:getDatabase(database)
+    local coll, err = db:createCollection(SCHEMA_META_KEY, mongo.BSON(validator))
     if not coll then
       return nil, err
     end
 
     log.debug(fmt("successfully created %s collection", SCHEMA_META_KEY))
 
-    local idxconf = {
-      index = fmt([[{
-          "createIndexes": "%s",
-          "indexes": [
-            { "key": { "key": 1, "subsystem": 1 }, "name": "primary_key", "unique": true }
-          ]
-        }]], SCHEMA_META_KEY)
-    }
-    local idx
-    idx, err = create_index(conn, self.config.database, idxconf)
+    local index = fmt([[{
+      "createIndexes": "%s",
+      "indexes": [
+        { "key": { "key": 1, "subsystem": 1 }, "name": "primary_key", "unique": true }
+      ]
+    }]], SCHEMA_META_KEY)
+    local idx, err = client:command(database, mongo.BSON(index))
     if not idx then
       return nil, err
     end
 
     log.debug(fmt("set 'key' and 'subsystem' as primary key for %s", SCHEMA_META_KEY))
 
-    local user
-    local userconf = {
-      user = self.config.user,
-      password = self.config.password,
-      roles = fmt('[ { "role": "readWrite", "db": "%s" } ]', self.config.database)
-    }
+    --local user
+    --local userconf = {
+    --  user = self.config.user,
+    --  password = self.config.password,
+    --  roles = fmt('[ { "role": "readWrite", "db": "%s" } ]', self.config.database)
+    --}
 
-    local ok
-    ok, err = self:setup_locks(default_locks_ttl, true)
+    local ok, err = self:setup_locks(default_locks_ttl, true)
     if not ok then
       return nil, err
     end
@@ -432,21 +392,23 @@ do
       error("up_sql must be a string", 2)
     end
 
-    local conn = self:get_stored_connection()
-    if not conn then
+    local connection = self:get_stored_connection()
+    if not connection then
       error("no connection")
     end
 
-    conn = conn.client
+    local client      = connection.client
+    local database    = connection.database
+    local script      = stringx.strip(up)
 
-    local script = stringx.strip(up)
+    local db = client:getDatabase(database)
 
-    local tables = split(script, "([^%%]+)", function(s) return s ~= "" end)
+    local tables = split(script, "([^%%]+)")
     for _, table in ipairs(tables) do
-      local fields = split(table, "([^@]+)", function (s) return s ~= "" end)
+      local fields = split(table, "([^@]+)")
       local table_struct = {}
       for _, data in ipairs(fields) do
-        local keyval = split(data, "([^#]+)", function (s) return s ~= "" end)
+        local keyval = split(data, "([^#]+)")
         -- insert key-value pairs for 'name', 'validator' and 'index'
         table_struct[keyval[1]] = keyval[2]
       end
@@ -458,32 +420,29 @@ do
         local validator = table_struct.validator and fmt('{ "validator": { "$jsonSchema": %s } }', table_struct.validator) or ''
         local index = table_struct.index and fmt('{ "createIndexes": "%s", "indexes": %s}', table_struct.name, table_struct.index) or ''
 
-        local config = {
-          name = table_struct.name,
-          validator = validator,
-          index = index
-        }
-        local coll , err = create_collection(conn, self.config.database, config)
+        local coll, err = db:createCollection(table_struct.name, mongo.BSON(validator))
         if not coll then
           return nil, err
         end
 
-        local idx
-        idx, err = create_index(conn, self.config.database, config)
+        local idx, err = client:command(database, mongo.BSON(index))
         if not idx then
-          error(err)
+          return nil, err
         end
+
         log.debug(fmt("successfully created %s collection", table_struct.name))
 
       elseif qt == 'update' then
 
         local validator = table_struct.validator and fmt('{ "$jsonSchema": %s }', table_struct.validator) or ''
+        local query = fmt([[{
+            "collMod": "%s",
+            "validator": %s
+          }]], table_struct.name, validator)
 
-        local config = {
-          name = table_struct.name,
-          validator = validator
-        }
-        local coll , err = update_collection(conn, self.config.database, config)
+        log.debug(fmt("query: %s", query))
+
+        local coll , err = client:command(database, query)
         if not coll then
           return nil, err
         end

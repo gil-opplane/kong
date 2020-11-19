@@ -272,31 +272,31 @@ return {
   },
 
   mongo = {
-    up = [[]] .. ws_migration_up(operations.mongo.up),
+    up = [[]], --.. ws_migration_up(operations.mongo.up),
     teardown = function(connector)
-      local coordinator = assert(connector:get_stored_connection())
-      local client      = coordinator.client
-      local database    = coordinator.database
-      local coll_name   = 'ca_certificates'
-      local index_name  = 'ca_certificates_cert_idx'
-
-      local collection = client:getCollection(database, coll_name)
-      local _, err = collection:dropIndex(index_name)
-      if err then
-        return nil, err
-      end
-
-      -- TODO
-      local _, err = ws_migration_teardown(operations.mongo.teardown)(connector)
-      if err then
-        return nil, err
-      end
-
-      -- add `cert_digest` field for `ca_certificates` table
-      _, err = m_ca_certificates_migration(connector)
-      if err then
-        return nil, err
-      end
+      --local coordinator = assert(connector:get_stored_connection())
+      --local client      = coordinator.client
+      --local database    = coordinator.database
+      --local coll_name   = 'ca_certificates'
+      --local index_name  = 'ca_certificates_cert_idx'
+--
+      --local collection = client:getCollection(database, coll_name)
+      --local _, err = collection:dropIndex(index_name)
+      --if err then
+      --  return nil, err
+      --end
+--
+      ---- TODO
+      --local _, err = ws_migration_teardown(operations.mongo.teardown)(connector)
+      --if err then
+      --  return nil, err
+      --end
+--
+      ---- add `cert_digest` field for `ca_certificates` table
+      --_, err = m_ca_certificates_migration(connector)
+      --if err then
+      --  return nil, err
+      --end
 
       return true
     end
