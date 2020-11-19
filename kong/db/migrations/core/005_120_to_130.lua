@@ -238,7 +238,37 @@ return {
       %
     ]],
     teardown = function(connector)
-      print('Teardown 005_120_to_130')
+      local coordinator = assert(connector:get_stored_connection())
+      local client      = coordinator.client
+      local database    = coordinator.database
+      local coll_name   = 'upstreams'
+
+      local collection = client:getCollection(database, coll_name)
+      local cursor = collection:find{}
+
+      for upstream, err in cursor:iterator() do
+        if err then
+          return nil, err
+        end
+
+        if type(upstream.algorithm) == "string" and #upstream.algorithm > 0 then
+          goto continue
+        end
+
+        local algorithm
+        if upstream.hash_on == "none" then
+          algorithm = "round-robin"
+        else
+          algorithm = "consistent-hashing"
+        end
+
+        local _, err = collection:update({id = upstream.id}, {algorithm = algorithm}, {upsert = false})
+        if err then
+          return nil, err
+        end
+
+        ::continue::
+      end
       return true
     end
   }

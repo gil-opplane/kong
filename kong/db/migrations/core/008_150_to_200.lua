@@ -59,7 +59,24 @@ return {
   mongo = {
     up = [[]],
     teardown = function(connector)
-      print('Teardown 008_150_to_200')
+      local coordinator = assert(connector:get_stored_connection())
+      local client      = coordinator.client
+      local database    = coordinator.database
+      local coll_name   = 'plugins'
+
+      local index_name  = 'plugins_run_on_idx'
+      local collection = client:getCollection(database, coll_name)
+      local _, err = collection:dropIndex(index_name)
+      if err then
+        return nil, err
+      end
+
+      coll_name   = 'cluster_ca'
+      collection = client:getCollection(database, coll_name)
+      _, err = collection:drop()
+      if err then
+        return nil, err
+      end
       return true
     end
   }

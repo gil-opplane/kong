@@ -203,7 +203,7 @@ end
 function MongoConnector:connect()
   local conn = self:get_stored_connection()
   if conn then
-    return conn
+    return conn.client
   end
 
   local client, err = assert(mongo.Client(self.server_url))
@@ -211,7 +211,12 @@ function MongoConnector:connect()
     return nil, err
   end
 
-  self:store_connection(client)
+  local connection = {
+    client = client,
+    database = self.config.database
+  }
+
+  self:store_connection(connection)
 
   return client
 end
@@ -238,6 +243,8 @@ function MongoConnector:setup_locks(_,_)
   if not conn then
     error("no connection")
   end
+
+  conn = conn.client
 
   log.debug("creating 'locks' table if not existing...")
   local conf = {
@@ -308,6 +315,8 @@ do
       error("no connection")
     end
 
+    conn = conn.client
+
     local table_names, err = get_collection_names(conn, self.config.database)
     if not table_names then
       return nil, err
@@ -354,6 +363,8 @@ do
     if not conn then
       error("no connection")
     end
+
+    conn = conn.client
 
     local collconf = {
       name = SCHEMA_META_KEY,
@@ -426,6 +437,8 @@ do
       error("no connection")
     end
 
+    conn = conn.client
+
     local script = stringx.strip(up)
 
     local tables = split(script, "([^%%]+)", function(s) return s ~= "" end)
@@ -496,6 +509,8 @@ do
     if not conn then
       error("no connection")
     end
+
+    conn = conn.client
 
     return true
   end
