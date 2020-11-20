@@ -57,7 +57,14 @@ return {
   },
 
   mongo = {
-    up = [[]],
+    up = [[
+      @name#plugins
+      @querytype#update
+      @index#{
+        "del": [ "plugins_run_on_idx" ]
+      }
+      %
+      ]],
     teardown = function(connector)
       local cjson       = require 'cjson'
       local coordinator = assert(connector:get_stored_connection())

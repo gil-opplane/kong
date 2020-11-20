@@ -70,6 +70,10 @@ local function get_collection_validator(client, database, collection)
   return validator
 end
 
+local function get_collection_indexes(client, database, collection)
+  return assert(client:command(database, fmt('{"listIndexes": "%s"}', collection))):value()
+end
+
 -- removes all keys that match 'key' on 'table'
 local function remove_deep_key (table, key)
   for k in pairs(table) do
@@ -108,6 +112,28 @@ local function update_validator(current, changes)
   return current
 end
 
+local function update_indexes(current, changes)
+
+  --for op, _ in pairs(changes) do
+  --  if op == 'set' then
+--
+  --    local updates = changes.set
+  --    for name, upd in pairs(updates) do
+  --      current["$jsonSchema"].properties[name] = upd
+  --    end
+--
+  --  elseif op == 'del' then
+--
+  --    local deletions = changes.del
+  --    for name, _ in pairs(deletions) do
+  --      current["$jsonSchema"].properties[name] = nil
+  --    end
+--
+  --  end
+  --end
+  --log.debug(dump(current["$jsonSchema"]))
+  return current
+end
 --local function add_user(client, database, config)
 --  local db = client:getDatabase(database)
 --  print(fmt("config: %s", config.roles))
@@ -479,42 +505,50 @@ do
 
 
       local qt        = table_struct.querytype
-      local validator = {}
-      local index     = {
-        createIndexes = table_struct.name,
-        indexes = {}
-      }
+      local val = {}
+      local idx = {}
       if qt == 'create' then
 
-        validator = { validator = {}}
-        validator.validator["$jsonSchema"] = cjson.decode(table_struct.validator or '{}')
-        index.indexes = cjson.decode(table_struct.index or '{}')
+        val = { validator = {}}
+        val.validator["$jsonSchema"] = cjson.decode(table_struct.validator or '{}')
+        idx = {
+          createIndexes = table_struct.name,
+          indexes = {}
+        }
+        idx.indexes = cjson.decode(table_struct.index or '{}')
 
-        local coll, err = db:createCollection(table_struct.name, mongo.BSON(cjson.encode(validator)))
-        if not coll then
-          -- do nothing, collection already exists
+        local coll, err = db:createCollection(table_struct.name, mongo.BSON(cjson.encode(val)))
+        if err then
+          -- do nothing
+        end
+        if coll then
+          log.debug(fmt("successfully created %s collection", table_struct.name))
         end
 
-        local idx, err = client:command(database, mongo.BSON(cjson.encode(index)))
-        if not idx then
+        local index, err = client:command(database, mongo.BSON(cjson.encode(idx)))
+        if err then
           return nil, err
         end
 
-        log.debug(fmt("successfully created %s collection", table_struct.name))
+        if not coll and index then
+          log.debug(fmt("successfully updated %s collection", table_struct.name))
+        end
 
       elseif qt == 'update' then
 
         local current_validator = get_collection_validator(client, database, table_struct.name)
-        --log.debug(fmt('current validator: %s', current_validator))
-        --log.debug(fmt('changes: %s', table_struct.validator or '{}'))
         local new_validator = update_validator(current_validator, cjson.decode(table_struct.validator or '{}'))
+
+        local current_indexes = get_collection_indexes(client, database, table_struct.name)
+        local new_indexes = update_indexes(current_indexes, cjson.decode(table_struct.index or '{}'))
+
         local query = {
           collMod = table_struct.name,
-          validator = new_validator
+          validator = new_validator,
         }
-        --log.debug(fmt(cjson.encode(query)))
-        local coll , err = client:command(database, mongo.BSON(cjson.encode(query)))
-        if not coll then
+        -- https://docs.mongodb.com/manual/reference/command/collMod/
+        local _, err = client:command(database, mongo.BSON(cjson.encode(query)))
+        if err then
           return nil, err
         end
 

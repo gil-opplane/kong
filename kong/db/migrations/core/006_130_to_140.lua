@@ -26,7 +26,7 @@ return {
       @name#upstreams
       @querytype#update
       @validator#{
-        "properties": {
+        "set": {
           "host_header": { "bsonType": "string" }
         }
       }
