@@ -274,6 +274,7 @@ return {
   mongo = {
     up = [[]], --.. ws_migration_up(operations.mongo.up),
     teardown = function(connector)
+      log.debug("Teardown 009!!!")
       --local coordinator = assert(connector:get_stored_connection())
       --local client      = coordinator.client
       --local database    = coordinator.database

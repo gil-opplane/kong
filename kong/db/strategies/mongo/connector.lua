@@ -9,6 +9,19 @@ local fmt         = string.format
 local MongoConnector   = {}
 MongoConnector.__index = MongoConnector
 
+local function dump(o)
+  if type(o) == 'table' then
+    local s = '{ '
+    for k,v in pairs(o) do
+      if type(k) ~= 'number' then k = '"'..k..'"' end
+      s = s .. k ..' = ' .. dump(v) .. ','
+    end
+    return s .. '} '
+  else
+    return tostring(o)
+  end
+end
+
 local function build_url(config)
   local url = "mongodb://"
   if config.user and config.password then
@@ -35,6 +48,64 @@ end
 
 local function get_server_info(client, database)
   return assert(client:command(database, '{"buildInfo":1}')):value()
+end
+
+local function get_collection_validator(client, database, collection)
+  local cursor, err = client:command(database, '{"listCollections": 1}')
+  if not cursor then
+    return nil, err
+  end
+
+  local validator = {}
+  for coll, err in cursor:iterator() do
+    if coll.name ~= collection then
+      goto continue
+    end
+
+    validator = coll.options.validator
+    break
+
+    ::continue::
+  end
+  return validator
+end
+
+-- removes all keys that match 'key' on 'table'
+local function remove_deep_key (table, key)
+  for k in pairs(table) do
+    if type(table[k]) == 'table' then
+      remove_deep_key(table[k], key)
+    elseif table[key] then
+      table[key] = nil
+    end
+  end
+  return table
+end
+
+local function update_validator(current, changes)
+  -- bugfix: required array comes with a '__array' key, which is not parseable.
+  -- need to search for '__array' at any depth, since arrays might have a required property
+  remove_deep_key(current, '__array')
+
+  for op, _ in pairs(changes) do
+    if op == 'set' then
+
+      local updates = changes.set
+      for name, upd in pairs(updates) do
+        current["$jsonSchema"].properties[name] = upd
+      end
+
+    elseif op == 'del' then
+
+      local deletions = changes.del
+      for name, _ in pairs(deletions) do
+        current["$jsonSchema"].properties[name] = nil
+      end
+
+    end
+  end
+  log.debug(dump(current["$jsonSchema"]))
+  return current
 end
 
 --local function add_user(client, database, config)
@@ -438,13 +509,14 @@ do
         log.debug(fmt("successfully created %s collection", table_struct.name))
 
       elseif qt == 'update' then
-        -- TODO migrations can have delta now, must compare it here
-        validator["$jsonSchema"] = json.decode(table_struct.validator or '')
+
+        local current_validator = get_collection_validator(client, database, table_struct.name)
+        local new_validator = update_validator(current_validator, json.decode(table_struct.validator or ''))
         local query = {
           collMod = table_struct.name,
-          validator = validator
+          validator = new_validator
         }
-
+        log.debug(fmt(json.encode(query)))
         local coll , err = client:command(database, mongo.BSON(json.encode(query)))
         if not coll then
           return nil, err
