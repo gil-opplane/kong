@@ -1,6 +1,7 @@
 local log         = require "kong.cmd.utils.log"
 local mongo       = require "mongo"
 local stringx     = require "pl.stringx"
+local json        = require "kong.tools.json"
 
 local fmt         = string.format
 
@@ -331,37 +332,35 @@ do
     local client      = connection.client
     local database    = connection.database
 
-    local validator   = [[{
-      "validator": {
-        "$jsonSchema": {
-          "bsonType": "object",
-          "required": ["key","subsystem"],
-          "properties": {
-            "key": { "bsonType": "string" },
-            "subsystem": { "bsonType": "string" },
-            "last_executed": { "bsonType": "string" },
-            "executed": { "bsonType": "array", "items": { "bsonType": "string" } },
-            "pending": { "bsonType": "array", "items": { "bsonType": "string" } }
-          }
-        }
+    local val = {
+      validator = {}
+    }
+    val.validator["$jsonSchema"] = {
+      bsonType = "object",
+      required = {"key","subsystem"},
+      properties = {
+        key = { bsonType = "string" },
+        subsystem = { bsonType = "string" },
+        last_executed = { bsonType = "string" },
+        executed = { bsonType = "array", items = { bsonType = "string" } },
+        pending = { bsonType = "array", items = { bsonType = "string" } }
       }
-    }]]
-
+    }
+    local val_json = json.encode(val)
     local db = client:getDatabase(database)
-    local coll, err = db:createCollection(SCHEMA_META_KEY, mongo.BSON(validator))
+    local coll, err = db:createCollection(SCHEMA_META_KEY, mongo.BSON(val_json))
     if not coll then
       return nil, err
     end
 
     log.debug(fmt("successfully created %s collection", SCHEMA_META_KEY))
 
-    local index = fmt([[{
-      "createIndexes": "%s",
-      "indexes": [
-        { "key": { "key": 1, "subsystem": 1 }, "name": "primary_key", "unique": true }
-      ]
-    }]], SCHEMA_META_KEY)
-    local idx, err = client:command(database, mongo.BSON(index))
+    local index = {
+      createIndexes = SCHEMA_META_KEY,
+      indexes = { { key = { key = 1, subsystem = 1 }, name = "primary_key", unique = true } }
+    }
+    local index_json = json.encode(index)
+    local idx, err = client:command(database, mongo.BSON(index_json))
     if not idx then
       return nil, err
     end
@@ -414,18 +413,24 @@ do
       end
 
 
-      local qt = table_struct.querytype
+      local qt        = table_struct.querytype
+      local validator = {}
+      local index     = {
+        createIndexes = table_struct.name,
+        indexes = {}
+      }
       if qt == 'create' then
 
-        local validator = table_struct.validator and fmt('{ "validator": { "$jsonSchema": %s } }', table_struct.validator) or ''
-        local index = table_struct.index and fmt('{ "createIndexes": "%s", "indexes": %s}', table_struct.name, table_struct.index) or ''
+        validator = { validator = {}}
+        validator.validator["$jsonSchema"] = json.decode(table_struct.validator or '')
+        index.indexes = json.decode(table_struct.index or '')
 
-        local coll, err = db:createCollection(table_struct.name, mongo.BSON(validator))
+        local coll, err = db:createCollection(table_struct.name, mongo.BSON(json.encode(validator)))
         if not coll then
           return nil, err
         end
 
-        local idx, err = client:command(database, mongo.BSON(index))
+        local idx, err = client:command(database, mongo.BSON(json.encode(index)))
         if not idx then
           return nil, err
         end
@@ -433,16 +438,14 @@ do
         log.debug(fmt("successfully created %s collection", table_struct.name))
 
       elseif qt == 'update' then
+        -- TODO migrations can have delta now, must compare it here
+        validator["$jsonSchema"] = json.decode(table_struct.validator or '')
+        local query = {
+          collMod = table_struct.name,
+          validator = validator
+        }
 
-        local validator = table_struct.validator and fmt('{ "$jsonSchema": %s }', table_struct.validator) or ''
-        local query = fmt([[{
-            "collMod": "%s",
-            "validator": %s
-          }]], table_struct.name, validator)
-
-        log.debug(fmt("query: %s", query))
-
-        local coll , err = client:command(database, query)
+        local coll , err = client:command(database, mongo.BSON(json.encode(query)))
         if not coll then
           return nil, err
         end

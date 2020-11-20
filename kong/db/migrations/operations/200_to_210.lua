@@ -495,7 +495,37 @@ local cassandra = {
 
 
 local mongo = {
-  up = [[]],
+  up = {
+    ws_add_workspaces = function(_)
+      return [[
+        @name#workspaces
+        @querytype#create
+        @validator#{
+          "bsonType": "object",
+          "required": ["id"],
+          "properties": {
+            "id": { "bsonType": "string", "pattern": "^urn:uuid" },
+            "name": { "bsonType": "string" },
+            "comment": { "bsonType": "string" },
+            "created_at": { "bsonType": "timestamp" },
+            "meta": { "bsonType": "string" },
+            "config": { "bsonType": "string" }
+          }
+        }
+        @index#[
+          { "key": { "id": 1 }, "name": "primary_key", "unique": true }
+        ]
+        %
+      ]]
+    end,
+    ws_add_ws_id = function(_, table_name, fk_users)
+      return render([[
+
+      ]],{
+        TABLE = table_name
+      })
+    end
+  },
   teardown = {
     ws_update_composite_cache_key = function(_, connector, table_name, is_partitioned)
       print('Teardown ws_update_composite_cache_key 200_to_210')
@@ -563,10 +593,12 @@ end
 
 postgres.up.ws_adjust_fields = ws_adjust_fields
 cassandra.up.ws_adjust_fields = ws_adjust_fields
+mongo.up.ws_adjust_fields = ws_adjust_fields
 
 
 postgres.teardown.ws_adjust_data = ws_adjust_data
 cassandra.teardown.ws_adjust_data = ws_adjust_data
+mongo.teardown.ws_adjust_data = ws_adjust_data
 
 
 --------------------------------------------------------------------------------
