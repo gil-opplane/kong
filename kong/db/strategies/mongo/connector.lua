@@ -1,7 +1,7 @@
 local log         = require "kong.cmd.utils.log"
 local mongo       = require "mongo"
 local stringx     = require "pl.stringx"
-local json        = require "kong.tools.json"
+local cjson       = require "cjson"
 
 local fmt         = string.format
 
@@ -104,7 +104,7 @@ local function update_validator(current, changes)
 
     end
   end
-  log.debug(dump(current["$jsonSchema"]))
+  --log.debug(dump(current["$jsonSchema"]))
   return current
 end
 
@@ -282,35 +282,29 @@ function MongoConnector:setup_locks(_,_)
 
   log.debug("creating 'locks' table if not existing...")
 
-  local locks_conf = {
-    name = 'locks',
-    validator = [[{
-        "validator": {
-          "$jsonSchema": {
-            "bsonType": "object",
-            "required": ["key"],
-            "properties": {
-              "key": { "bsonType": "string" },
-              "owner": { "bsonType": "string" },
-              "ttl": { "bsonType": "timestamp" }
-            }
-          }
-        }
-      }]],
-    index = fmt([[{
-        "createIndexes": "locks",
-        "indexes": [
-          { "key": { "ttl": 1 }, "name": "locks_ttl_idx" }
-        ]
-      }]], SCHEMA_META_KEY)
+  local val = {
+    validator = {}
+  }
+  val.validator["$jsonSchema"] = {
+    bsonType = "object",
+    required = {"key"},
+    properties = {
+      key = { bsonType = "string" },
+      owner = { bsonType = "string" },
+      ttl = { bsonType = "timestamp" }
+    }
+  }
+  local index = {
+    createIndexes = 'locks',
+    indexes = { { key = { ttl = 1 }, name = "locks_ttl_idx" } }
   }
 
-  local coll, err = db:createCollection(locks_conf.name, mongo.BSON(locks_conf.validator))
+  local coll, err = db:createCollection('locks', mongo.BSON(cjson.encode(val)))
   if not coll then
     return nil, err
   end
 
-  local idx, err = client:command(database, mongo.BSON(locks_conf.index))
+  local idx, err = client:command(database, mongo.BSON(cjson.encode(index)))
   if not idx then
     return nil, err
   end
@@ -417,7 +411,7 @@ do
         pending = { bsonType = "array", items = { bsonType = "string" } }
       }
     }
-    local val_json = json.encode(val)
+    local val_json = cjson.encode(val)
     local db = client:getDatabase(database)
     local coll, err = db:createCollection(SCHEMA_META_KEY, mongo.BSON(val_json))
     if not coll then
@@ -430,7 +424,7 @@ do
       createIndexes = SCHEMA_META_KEY,
       indexes = { { key = { key = 1, subsystem = 1 }, name = "primary_key", unique = true } }
     }
-    local index_json = json.encode(index)
+    local index_json = cjson.encode(index)
     local idx, err = client:command(database, mongo.BSON(index_json))
     if not idx then
       return nil, err
@@ -493,15 +487,15 @@ do
       if qt == 'create' then
 
         validator = { validator = {}}
-        validator.validator["$jsonSchema"] = json.decode(table_struct.validator or '')
-        index.indexes = json.decode(table_struct.index or '')
+        validator.validator["$jsonSchema"] = cjson.decode(table_struct.validator or '{}')
+        index.indexes = cjson.decode(table_struct.index or '{}')
 
-        local coll, err = db:createCollection(table_struct.name, mongo.BSON(json.encode(validator)))
+        local coll, err = db:createCollection(table_struct.name, mongo.BSON(cjson.encode(validator)))
         if not coll then
-          return nil, err
+          -- do nothing, collection already exists
         end
 
-        local idx, err = client:command(database, mongo.BSON(json.encode(index)))
+        local idx, err = client:command(database, mongo.BSON(cjson.encode(index)))
         if not idx then
           return nil, err
         end
@@ -511,13 +505,15 @@ do
       elseif qt == 'update' then
 
         local current_validator = get_collection_validator(client, database, table_struct.name)
-        local new_validator = update_validator(current_validator, json.decode(table_struct.validator or ''))
+        --log.debug(fmt('current validator: %s', current_validator))
+        --log.debug(fmt('changes: %s', table_struct.validator or '{}'))
+        local new_validator = update_validator(current_validator, cjson.decode(table_struct.validator or '{}'))
         local query = {
           collMod = table_struct.name,
           validator = new_validator
         }
-        log.debug(fmt(json.encode(query)))
-        local coll , err = client:command(database, mongo.BSON(json.encode(query)))
+        --log.debug(fmt(cjson.encode(query)))
+        local coll , err = client:command(database, mongo.BSON(cjson.encode(query)))
         if not coll then
           return nil, err
         end

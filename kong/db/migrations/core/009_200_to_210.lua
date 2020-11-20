@@ -272,32 +272,74 @@ return {
   },
 
   mongo = {
-    up = [[]], --.. ws_migration_up(operations.mongo.up),
+    up = [[
+      @name#ca_certificates
+      @querytype#update
+      @validator#{
+        "set": {
+          "cert_digest": { "bsonType": "string" }
+        }
+      }
+      %
+      @name#services
+      @querytype#update
+      @validator#{
+        "set": {
+          "tls_verify": { "bsonType": "bool" },
+          "tls_verify_depth": { "bsonType": "int" },
+          "ca_certificates": { "bsonType": "array", "items": { "bsonType": "string", "pattern": "^urn:uuid" } }
+        }
+      }
+      %
+      @name#upstreams
+      @querytype#update
+      @validator#{
+        "set": {
+          "client_certificate_id": { "bsonType": "string", "pattern": "^urn:uuid" }
+        }
+      }
+      %
+      @name#ca_certificates
+      @querytype#create
+      @index#[
+        { "key": { "cert_digest": 1 }, "name": "ca_certificates_cert_digest_idx" }
+      ]
+      %
+      @name#upstreams
+      @querytype#create
+      @index#[
+        { "key": { "client_certificate_id": 1 }, "name": "upstreams_client_certificate_id_idx" }
+      ]
+      %
+    ]].. ws_migration_up(operations.mongo.up),
     teardown = function(connector)
-      log.debug("Teardown 009!!!")
-      --local coordinator = assert(connector:get_stored_connection())
-      --local client      = coordinator.client
-      --local database    = coordinator.database
-      --local coll_name   = 'ca_certificates'
-      --local index_name  = 'ca_certificates_cert_idx'
---
-      --local collection = client:getCollection(database, coll_name)
-      --local _, err = collection:dropIndex(index_name)
+      local cjson       = require 'cjson'
+      local coordinator = assert(connector:get_stored_connection())
+      local client      = coordinator.client
+      local database    = coordinator.database
+      local coll_name   = 'ca_certificates'
+      local index_name  = 'ca_certificates_cert_idx'
+
+      -- TODO can't delete index
+      --local index = {
+      --  dropIndexes = coll_name,
+      --  index = index_name
+      --}
+      --local _, err = client:command(database, cjson.encode(index))
       --if err then
       --  return nil, err
       --end
---
-      ---- TODO
-      --local _, err = ws_migration_teardown(operations.mongo.teardown)(connector)
-      --if err then
-      --  return nil, err
-      --end
---
-      ---- add `cert_digest` field for `ca_certificates` table
-      --_, err = m_ca_certificates_migration(connector)
-      --if err then
-      --  return nil, err
-      --end
+
+      local _, err = ws_migration_teardown(operations.mongo.teardown)(connector)
+      if err then
+        return nil, err
+      end
+
+      -- add `cert_digest` field for `ca_certificates` table
+      _, err = m_ca_certificates_migration(connector)
+      if err then
+        return nil, err
+      end
 
       return true
     end

@@ -520,23 +520,128 @@ local mongo = {
     end,
     ws_add_ws_id = function(_, table_name, fk_users)
       return render([[
-
+        @name#$(TABLE)
+        @querytype#update
+        @validator#{
+          "set": {
+            "ws_id": { "bsonType": "string", "pattern": "^urn:uuid" }
+          }
+        }
+        @index#[
+          { "key": { "ws_id": 1 }, "name": "$(TABLE)_ws_id_idx" }
+        ]
+        %
       ]],{
         TABLE = table_name
       })
-    end
+    end,
+    ws_unique_field = function(_, table_name, field_name)
+      return ""
+    end,
+    ws_adjust_foreign_key = function(_, table_name, fk_prefix, foreign_table_name)
+      return ""
+    end,
   },
   teardown = {
+    ------------------------------------------------------------------------------
+    -- Update composite cache keys to workspace-aware formats
     ws_update_composite_cache_key = function(_, connector, table_name, is_partitioned)
-      print('Teardown ws_update_composite_cache_key 200_to_210')
+      local coordinator = assert(connector:get_stored_connection())
+      local mongo       = require('mongo')
+      local client      = coordinator.client
+      local database    = coordinator.database
+      local coll_name   = table_name
+
+      -- select id from workspaces where name = default
+      -- update table set cache_key = cache_key:id where cache_key like '%:'
+
+      local collection = client:getCollection(database, coll_name)
+      local workspaces = client:getCollection(database, 'workspaces')
+
+      local id
+      local cursor = workspaces:findOne{name = 'default'}
+      if not cursor then
+        id = default_ws_id
+        local _, err = workspaces:insert({id = id, name = 'default'})
+        if err then
+          return nil, err
+        end
+      else
+        id = cursor:value(function (t) return { id = t.id } end).id
+      end
+
+      local cursor, err = collection:find{ cache_key = mongo.BSON'{"$regex": /.*:/}' }
+      if not cursor then
+          return nil, err
+      end
+      for record, err in cursor:iterator() do
+        if err then
+          return nil, err
+        end
+
+        local _, err = collection:update(
+          { id = record.id },
+          { cache_key =  record.cache_key .. ':' .. id },
+          { upsert = false }
+        )
+        if err then
+          return nil, err
+        end
+      end
+
       return true
-    end,
+      end,
+    ------------------------------------------------------------------------------
+    -- Update keys to workspace-aware formats
     ws_update_keys = function(_, connector, table_name, unique_keys, is_partitioned)
-      print('Teardown ws_update_keys 200_to_210')
+      print('Teardown ws_update_keys 200_to_210 <- to do?')
+      local function dump(o)
+        if type(o) == 'table' then
+          local s = '{ '
+          for k,v in pairs(o) do
+            if type(k) ~= 'number' then k = '"'..k..'"' end
+            s = s .. k ..' = ' .. dump(v) .. ','
+          end
+          return s .. '} '
+        else
+          return tostring(o)
+        end
+      end
+      print(string.format("%s, %s, %s", table_name, dump(unique_keys), is_partitioned))
       return true
     end,
+    ------------------------------------------------------------------------------
+    -- General function to fixup a plugin configuration
     fixup_plugin_config = function(_, connector, plugin_name, fixup_fn)
-      print('Teardown fixup_plugin_config 200_to_210')
+      local coordinator = assert(connector:get_stored_connection())
+      local client      = coordinator.client
+      local database    = coordinator.database
+      local coll_name   = 'plugins'
+
+      local collection = client:getCollection(database, coll_name)
+      local cursor = collection:find{ name = plugin_name }
+
+      for plugin, err in cursor:iterator() do
+        if err then
+          return nil, err
+        end
+        if type(plugin.config) ~= "string" then
+          return nil, "plugin config is not a string"
+        end
+        local config = cjson.decode(plugin.config)
+        local fix = fixup_fn(config)
+        if fix then
+          local _, err = collection:update(
+            { id = plugin.id },
+            { config = cjson.encode(config) },
+            { upsert = false }
+          )
+          if err then
+            return nil, err
+          end
+        end
+      end
+
       return true
     end
   }
@@ -627,6 +732,11 @@ local function ws_migrate_plugin(plugin_entities)
     cassandra = {
       up = ws_migration_up(cassandra.up),
       teardown = ws_migration_teardown(cassandra.teardown),
+    },
+
+    mongo = {
+      up = ws_migration_up(mongo.up),
+      teardown = ws_migration_teardown(mongo.teardown),
     },
   }
 end
