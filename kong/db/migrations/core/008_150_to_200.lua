@@ -60,32 +60,27 @@ return {
     up = [[
       @name#plugins
       @querytype#update
+      @validator#{
+        "del": [ "run_on" ]
+      }
+      %
+      @name#plugins
+      @querytype#update
       @index#{
         "del": [ "plugins_run_on_idx" ]
       }
       %
       ]],
     teardown = function(connector)
-      local cjson       = require 'cjson'
+      -- there's no notion of default values in mongodb's validators
       local coordinator = assert(connector:get_stored_connection())
       local client      = coordinator.client
       local database    = coordinator.database
       local coll_name   = 'plugins'
 
-      -- TODO can't delete index
-      --local drop_index = {
-      --  dropIndexes = coll_name,
-      --  index = { "plugins_run_on_idx" }
-      --}
-      --local collection = client:getCollection(database, coll_name)
-      --local _, err = client:command(database, cjson.encode(drop_index))
-      --if err then
-      --  return nil, err
-      --end
-
       coll_name   = 'cluster_ca'
-      collection = client:getCollection(database, coll_name)
-      _, err = collection:drop()
+      local collection = client:getCollection(database, coll_name)
+      local _, err = collection:drop()
       if err then
         return nil, err
       end
