@@ -281,6 +281,18 @@ return {
         }
       }
       %
+      @name#ca_certificates
+      @querytype#update
+      @index#{
+        "del": [ "ca_certificates_cert_idx" ]
+      }
+      %
+      @name#ca_certificates
+      @querytype#update
+      @index#[
+        { "key": { "cert_digest": 1 }, "name": "ca_certificates_cert_digest_idx" }
+      ]
+      %
       @name#services
       @querytype#update
       @validator#{
@@ -299,36 +311,23 @@ return {
         }
       }
       %
-      @name#ca_certificates
-      @querytype#create
-      @index#[
-        { "key": { "cert_digest": 1 }, "name": "ca_certificates_cert_digest_idx" }
-      ]
-      %
       @name#upstreams
-      @querytype#create
+      @querytype#update
       @index#[
         { "key": { "client_certificate_id": 1 }, "name": "upstreams_client_certificate_id_idx" }
       ]
       %
     ]].. ws_migration_up(operations.mongo.up),
     teardown = function(connector)
-      local cjson       = require 'cjson'
       local coordinator = assert(connector:get_stored_connection())
-      local client      = coordinator.client
-      local database    = coordinator.database
-      local coll_name   = 'ca_certificates'
-      local index_name  = 'ca_certificates_cert_idx'
+      local default_ws, err = operations.mongo_ensure_default_ws(coordinator)
+      if err then
+        return nil, err
+      end
 
-      -- TODO can't delete index
-      --local index = {
-      --  dropIndexes = coll_name,
-      --  index = index_name
-      --}
-      --local _, err = client:command(database, cjson.encode(index))
-      --if err then
-      --  return nil, err
-      --end
+      if not default_ws then
+        return nil, "unable to find a default workspace"
+      end
 
       local _, err = ws_migration_teardown(operations.mongo.teardown)(connector)
       if err then

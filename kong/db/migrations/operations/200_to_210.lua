@@ -74,6 +74,67 @@ local function cassandra_ensure_default_ws(coordinator)
 end
 
 
+local function mongo_get_default_ws(coordinator)
+  if ws_id then
+    return ws_id
+  end
+
+  local client      = coordinator.client
+  local database    = coordinator.database
+  local coll_name   = 'workspaces'
+
+  local collection = client:getCollection(database, coll_name)
+  local cursor, err = collection:find{name = 'default'}
+  if err then
+    return nil, err
+  end
+
+  local default = cursor:value()
+  if not default or not default.id then
+    return nil
+  end
+
+  ws_id = default.id
+
+  return ws_id
+end
+
+
+local function mongo_create_default_ws(coordinator)
+  local created_at = ngx.time() * 1000
+
+  local client      = coordinator.client
+  local database    = coordinator.database
+  local coll_name   = 'workspaces'
+
+  local collection = client:getCollection(database, coll_name)
+  local _, err = collection:insert{
+    id = default_ws_id,
+    created_at = created_at,
+    name = 'default'
+  }
+  if err then
+    return nil, err
+  end
+
+  return mongo_get_default_ws(coordinator)
+end
+
+
+local function mongo_ensure_default_ws(coordinator)
+  local default_ws, err = mongo_get_default_ws(coordinator)
+  if err then
+    return nil, err
+  end
+
+  if default_ws then
+    return default_ws
+  end
+
+  return mongo_create_default_ws(coordinator)
+end
+
+
 --------------------------------------------------------------------------------
 -- Postgres operations for Workspace migration
 --------------------------------------------------------------------------------
@@ -536,7 +597,17 @@ local mongo = {
       })
     end,
     ws_unique_field = function(_, table_name, field_name)
-      return ""
+      return render([[
+        @name#$(TABLE)
+        @querytype#update
+        @index#[
+          { "key": { "$(FIELD)": 1 }, "name": "$(TABLE)_$(FIELD)_idx", "unique": true }
+        ]
+        %
+      ]],{
+        TABLE = table_name,
+        FIELD = field_name
+      })
     end,
     ws_adjust_foreign_key = function(_, table_name, fk_prefix, foreign_table_name)
       return ""
@@ -595,24 +666,25 @@ local mongo = {
     -- Update keys to workspace-aware formats
     ws_update_keys = function(_, connector, table_name, unique_keys, is_partitioned)
       print('Teardown ws_update_keys 200_to_210 <- to do?')
-      local function dump(o)
-        if type(o) == 'table' then
-          local s = '{ '
-          for k,v in pairs(o) do
-            if type(k) ~= 'number' then k = '"'..k..'"' end
-            s = s .. k ..' = ' .. dump(v) .. ','
-          end
-          return s .. '} '
-        else
-          return tostring(o)
-        end
-      end
-      print(string.format("%s, %s, %s", table_name, dump(unique_keys), is_partitioned))
+      --local function dump(o)
+      --  if type(o) == 'table' then
+      --    local s = '{ '
+      --    for k,v in pairs(o) do
+      --      if type(k) ~= 'number' then k = '"'..k..'"' end
+      --      s = s .. k ..' = ' .. dump(v) .. ','
+      --    end
+      --    return s .. '} '
+      --  else
+      --    return tostring(o)
+      --  end
+      --end
+      --print(string.format("%s, %s, %s", table_name, dump(unique_keys), is_partitioned))
       return true
     end,
     ------------------------------------------------------------------------------
     -- General function to fixup a plugin configuration
     fixup_plugin_config = function(_, connector, plugin_name, fixup_fn)
+      local cjson       = require "cjson"
       local coordinator = assert(connector:get_stored_connection())
       local client      = coordinator.client
       local database    = coordinator.database
@@ -753,4 +825,7 @@ return {
   cassandra_get_default_ws = cassandra_get_default_ws,
   cassandra_create_default_ws = cassandra_create_default_ws,
   cassandra_ensure_default_ws = cassandra_ensure_default_ws,
+  mongo_get_default_ws = mongo_get_default_ws,
+  mongo_create_default_ws = mongo_create_default_ws,
+  mongo_ensure_default_ws = mongo_ensure_default_ws
 }
