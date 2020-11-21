@@ -116,9 +116,38 @@ return {
   },
 
   mongo = {
-    up = [[]],
+    up = [[
+      @name#clustering_data_planes
+      @querytype#create
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "hostname": { "bsonType": "string" },
+          "ip": { "bsonType": "string" },
+          "last_seen": { "bsonType": "number", "pattern": "^[0-9]{13}$" },
+          "config_hash": { "bsonType": "string" },
+          "expire_at": { "bsonType": "number", "pattern": "^[0-9]{13}$" }
+        }
+      }
+      @index#[
+        { "key": { "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "expire_at": 1 }, "name": "ttl", "expireAfterSeconds": 1209600 }
+      ]
+      %
+      @name#routes
+      @querytype#update
+      @validator#{
+        "set": {
+          "request_buffering": { "bsonType": "bool" },
+          "response_buffering": { "bsonType": "bool" }
+        }
+      }
+      %
+    ]],
     teardown = function(connector)
-      print('Teardown 012_213_to_220')
+      print('Teardown 012_213_to_220 <- to do')
       return true
     end
   }

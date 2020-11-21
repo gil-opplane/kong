@@ -577,7 +577,8 @@ local mongo = {
           }
         }
         @index#[
-          { "key": { "id": 1 }, "name": "primary_key", "unique": true }
+          { "key": { "id": 1 }, "name": "primary_key", "unique": true },
+          { "key": { "name": 1 }, "name": "workspaces_name_idx", "unique": true }
         ]
         %
       ]]
@@ -668,20 +669,20 @@ local mongo = {
     ------------------------------------------------------------------------------
     -- Update keys to workspace-aware formats
     ws_update_keys = function(_, connector, table_name, unique_keys, is_partitioned)
-      print('Teardown ws_update_keys 200_to_210 <- to do?')
-      --local function dump(o)
-      --  if type(o) == 'table' then
-      --    local s = '{ '
-      --    for k,v in pairs(o) do
-      --      if type(k) ~= 'number' then k = '"'..k..'"' end
-      --      s = s .. k ..' = ' .. dump(v) .. ','
-      --    end
-      --    return s .. '} '
-      --  else
-      --    return tostring(o)
-      --  end
-      --end
-      --print(string.format("%s, %s, %s", table_name, dump(unique_keys), is_partitioned))
+      print('Teardown ws_update_keys 200_to_210 <- to do')
+      local function dump(o)
+        if type(o) == 'table' then
+          local s = '{ '
+          for k,v in pairs(o) do
+            if type(k) ~= 'number' then k = '"'..k..'"' end
+            s = s .. k ..' = ' .. dump(v) .. ','
+          end
+          return s .. '} '
+        else
+          return tostring(o)
+        end
+      end
+      print(string.format("%s, %s, %s", table_name, dump(unique_keys), is_partitioned))
       return true
     end,
     ------------------------------------------------------------------------------

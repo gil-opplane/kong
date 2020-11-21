@@ -77,6 +77,7 @@ end
 
 postgres.teardown.ws_adjust_data = ws_adjust_data
 cassandra.teardown.ws_adjust_data = ws_adjust_data
+mongo.teardown.ws_adjust_data = ws_adjust_data
 
 
 --------------------------------------------------------------------------------
@@ -85,4 +86,5 @@ cassandra.teardown.ws_adjust_data = ws_adjust_data
 return {
   postgres = postgres,
   cassandra = cassandra,
+  mongo = mongo,
 }
