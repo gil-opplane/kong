@@ -78,7 +78,35 @@ local function c_ca_certificates_migration(coordinator)
 end
 
 
-local function m_ca_certificates_migration(coordinator)
+local function m_ca_certificates_migration(connector)
+  local coordinator = assert(connector:get_stored_connection())
+  local client      = coordinator.client
+  local database    = coordinator.database
+  local coll_name   = 'ca_certificates'
+
+  local collection = client:getCollection(database, coll_name)
+  local cursor, err = collection:find{}
+  if err then
+    return nil, err
+  end
+
+  for ca_cert, err in cursor:iterator() do
+    local digest = str.to_hex(openssl_x509.new(ca_cert.cert):digest("sha256"))
+    if not digest then
+      return nil, "cannot create digest value of certificate with id: " .. ca_cert.id
+    end
+    if digest ~= ca_cert.cert_digest then
+      local _, err = collection:update(
+        { id = ca_cert.id },
+        { cert_digest = digest },
+        { upsert = false }
+      )
+      if err then
+        return nil, err
+      end
+    end
+  end
+
   return true
 end
 
@@ -299,7 +327,7 @@ return {
         "set": {
           "tls_verify": { "bsonType": "bool" },
           "tls_verify_depth": { "bsonType": "int" },
-          "ca_certificates": { "bsonType": "array", "items": { "bsonType": "string", "pattern": "^urn:uuid" } }
+          "ca_certificates": { "bsonType": "array", "items": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" } }
         }
       }
       %
@@ -307,7 +335,7 @@ return {
       @querytype#update
       @validator#{
         "set": {
-          "client_certificate_id": { "bsonType": "string", "pattern": "^urn:uuid" }
+          "client_certificate_id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" }
         }
       }
       %
@@ -319,8 +347,7 @@ return {
       %
     ]].. ws_migration_up(operations.mongo.up),
     teardown = function(connector)
-      local coordinator = assert(connector:get_stored_connection())
-      local default_ws, err = operations.mongo_ensure_default_ws(coordinator)
+      local default_ws, err = operations.mongo_ensure_default_ws(connector)
       if err then
         return nil, err
       end

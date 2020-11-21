@@ -74,11 +74,12 @@ local function cassandra_ensure_default_ws(coordinator)
 end
 
 
-local function mongo_get_default_ws(coordinator)
+local function mongo_get_default_ws(connector)
   if ws_id then
     return ws_id
   end
 
+  local coordinator = assert(connector:get_stored_connection())
   local client      = coordinator.client
   local database    = coordinator.database
   local coll_name   = 'workspaces'
@@ -100,8 +101,9 @@ local function mongo_get_default_ws(coordinator)
 end
 
 
-local function mongo_create_default_ws(coordinator)
+local function mongo_create_default_ws(connector)
   local created_at = ngx.time() * 1000
+  local coordinator = assert(connector:get_stored_connection())
 
   local client      = coordinator.client
   local database    = coordinator.database
@@ -113,16 +115,17 @@ local function mongo_create_default_ws(coordinator)
     created_at = created_at,
     name = 'default'
   }
+
   if err then
     return nil, err
   end
 
-  return mongo_get_default_ws(coordinator)
+  return mongo_get_default_ws(connector)
 end
 
 
-local function mongo_ensure_default_ws(coordinator)
-  local default_ws, err = mongo_get_default_ws(coordinator)
+local function mongo_ensure_default_ws(connector)
+  local default_ws, err = mongo_get_default_ws(connector)
   if err then
     return nil, err
   end
@@ -131,7 +134,7 @@ local function mongo_ensure_default_ws(coordinator)
     return default_ws
   end
 
-  return mongo_create_default_ws(coordinator)
+  return mongo_create_default_ws(connector)
 end
 
 
@@ -565,10 +568,10 @@ local mongo = {
           "bsonType": "object",
           "required": ["id"],
           "properties": {
-            "id": { "bsonType": "string", "pattern": "^urn:uuid" },
+            "id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
             "name": { "bsonType": "string" },
             "comment": { "bsonType": "string" },
-            "created_at": { "bsonType": "timestamp" },
+            "created_at": { "bsonType": "number", "pattern": "^[0-9]{13}$" },
             "meta": { "bsonType": "string" },
             "config": { "bsonType": "string" }
           }
@@ -585,7 +588,7 @@ local mongo = {
         @querytype#update
         @validator#{
           "set": {
-            "ws_id": { "bsonType": "string", "pattern": "^urn:uuid" }
+            "ws_id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" }
           }
         }
         @index#[
@@ -641,7 +644,7 @@ local mongo = {
         id = cursor:value(function (t) return { id = t.id } end).id
       end
 
-      local cursor, err = collection:find{ cache_key = mongo.BSON'{"$regex": /.*:/}' }
+      local cursor, err = collection:find{ cache_key = mongo.BSON'{ "$regex": "/.*:/" }' }
       if not cursor then
           return nil, err
       end

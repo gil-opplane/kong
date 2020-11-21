@@ -174,10 +174,10 @@ return {
         "required": ["id"],
         "properties": {
           "partition": { "bsonType": "string" },
-          "id": { "bsonType": "string", "pattern": "^urn:uuid" },
+          "id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
           "cert": { "bsonType": "string" },
           "key": { "bsonType": "string" },
-          "created_at": { "bsonType": "timestamp" },
+          "created_at": { "bsonType": "number", "pattern": "^[0-9]{13}$" },
           "tags": { "bsonType": "array", "items": { "bsonType": "string" } }
         }
       }
