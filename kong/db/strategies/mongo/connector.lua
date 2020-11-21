@@ -365,7 +365,7 @@ do
 
 
     local collection
-    collection, err = assert(db:getCollection(name))
+    collection, err = assert(db:getCollection(SCHEMA_META_KEY))
     if not collection then
       return nil, err
     end
