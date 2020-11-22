@@ -4,6 +4,8 @@ local stringx     = require "pl.stringx"
 local cjson       = require "cjson"
 
 local fmt         = string.format
+local concat      = table.concat
+local insert      = table.insert
 
 
 local MongoConnector   = {}
@@ -70,10 +72,6 @@ local function get_collection_validator(client, database, collection)
   return validator
 end
 
-local function get_collection_indexes(client, database, collection)
-  return assert(client:command(database, fmt('{"listIndexes": "%s"}', collection)))
-end
-
 -- removes all keys that match 'key' on 'table'
 local function remove_deep_key (table, key)
   for k in pairs(table) do
@@ -134,6 +132,15 @@ local function split(str, pattern)
   end
   return lines
 end
+
+local function removeFirst(tbl, val)
+  for i, v in ipairs(tbl) do
+    if v == val then
+      return table.remove(tbl, i)
+    end
+  end
+end
+local remove = removeFirst
 
 function MongoConnector.new(kong_config)
   local resolved_endpoints = {}
@@ -247,7 +254,7 @@ function MongoConnector:connect()
 
   self:store_connection(connection)
 
-  return client
+  return client, self.config.database
 end
 
 function MongoConnector:connect_migrations()
@@ -267,8 +274,9 @@ function MongoConnector:close()
   return true
 end
 
-function MongoConnector:setup_locks(_,_)
+function MongoConnector:setup_locks(default_locks_ttl,_)
   local connection = self:get_stored_connection()
+  print(string.format("setup_locks connection: %s", dump(connection)))
   if not connection then
     error("no connection")
   end
@@ -289,12 +297,12 @@ function MongoConnector:setup_locks(_,_)
     properties = {
       key = { bsonType = "string" },
       owner = { bsonType = "string" },
-      ttl = { bsonType = "timestamp" }
+      ttl = { bsonType = "number", pattern = "^[0-9]{13}$" }
     }
   }
   local index = {
     createIndexes = 'locks',
-    indexes = { { key = { ttl = 1 }, name = "locks_ttl_idx" } }
+    indexes = { { key = { ttl = 1 }, name = "locks_ttl_idx", expireAfterSeconds = default_locks_ttl } }
   }
 
   local coll, err = db:createCollection('locks', mongo.BSON(cjson.encode(val)))
@@ -313,19 +321,92 @@ function MongoConnector:setup_locks(_,_)
 end
 
 function MongoConnector:insert_lock(key, ttl, owner)
-  -- TODO
+  local connection = self:get_stored_connection()
+  print(string.format("insert_lock connection: %s", dump(connection)))
+  if not connection then
+    local client, database = self:connect()
+    connection = {
+      client = client,
+      database = database
+    }
+  end
 
-  return true
+  local client      = connection.client
+  local database    = connection.database
+  local coll_name   = 'locks'
+
+  local collection = client:getCollection(database, coll_name)
+  local res, err = collection:insert{
+    key = key,
+    owner = owner,
+    ttl = ttl
+  }
+  if not res then
+    return nil, err
+  end
+
+  res = res[1]
+  if not res then
+    return nil, "unexpected result"
+  end
+
+  return res["[applied]"]
 end
 
 function MongoConnector:read_lock(key)
-  -- TODO
+  local connection = self:get_stored_connection()
+  print(string.format("read_lock connection: %s", dump(connection)))
+  if not connection then
+    local client, database = self:connect()
+    connection = {
+      client = client,
+      database = database
+    }
+  end
 
-  return true
+  local client      = connection.client
+  local database    = connection.database
+  local coll_name   = 'locks'
+
+  local collection = client:getCollection(database, coll_name)
+  local cursor, err = collection:find{key = key}
+  if err then
+    return nil, err
+  end
+
+  local res, err = cursor:value()
+  if not res then
+    return nil, err
+  end
+
+  return res[1] ~= nil
 end
 
 function MongoConnector:remove_lock(key, owner)
-  -- TODO
+  local connection = self:get_stored_connection()
+  print(string.format("remove_lock connection: %s", dump(connection)))
+  if not connection then
+    local client, database = self:connect()
+    connection = {
+      client = client,
+      database = database
+    }
+  end
+
+  local client      = connection.client
+  local database    = connection.database
+  local coll_name   = 'locks'
+
+  local collection = client:getCollection(database, coll_name)
+  local cursor, err = collection:removeMany({
+    key = key,
+    owner = owner
+  })
+
+  local res, err = cursor:value()
+  if not res then
+    return nil, err
+  end
 
   return true
 end
@@ -429,13 +510,6 @@ do
     end
 
     log.debug(fmt("set 'key' and 'subsystem' as primary key for %s", SCHEMA_META_KEY))
-
-    --local user
-    --local userconf = {
-    --  user = self.config.user,
-    --  password = self.config.password,
-    --  roles = fmt('[ { "role": "readWrite", "db": "%s" } ]', self.config.database)
-    --}
 
     local ok, err = self:setup_locks(default_locks_ttl, true)
     if not ok then
@@ -569,12 +643,55 @@ do
       error("name must be a string", 2)
     end
 
-    local conn = self:get_stored_connection()
-    if not conn then
+    local connection = self:get_stored_connection()
+    if not connection then
       error("no connection")
     end
 
-    conn = conn.client
+    local client      = connection.client
+    local database    = connection.database
+    local collection  = client:getCollection(database, SCHEMA_META_KEY)
+    local where = { key = SCHEMA_META_KEY, subsystem = subsystem }
+
+    local cursor, err = collection:find(where)
+    if err then
+      return nil, err
+    end
+    local migration = cursor:value()
+    local executed
+    local pending
+
+    if not migration then
+      executed = {}
+      pending = {}
+    else
+       executed = migration.executed and remove_deep_key(migration.executed, '__array') or {}
+       pending = migration.pending and remove_deep_key(migration.pending, '__array') or {}
+    end
+
+    local set = where
+
+    if state == 'executed' then
+      insert(executed,  name )
+      set.last_executed = name
+      set.executed = executed
+    elseif state == 'pending' then
+      insert(pending,  name )
+      set.pending = pending
+    elseif state == 'teardown' then
+      remove(pending,  name )
+      insert(executed,  name )
+      set.pending = pending
+      set.executed = executed
+    else
+      error("unknown 'state' argument: " .. tostring(state))
+    end
+
+    local res
+    res, err = collection:update(cjson.encode(where), cjson.encode(set), { upsert = true })
+    if not res then
+      return nil, err
+    end
 
     return true
   end
