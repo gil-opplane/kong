@@ -45,6 +45,28 @@ return {
   },
 
   mongo = {
-    up = [[]]
+    up = [[
+      @name#jwt_secrets
+      @querytype#create
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "created_at": { "bsonType": "number", "pattern": "^[0-9]{13}$" },
+          "consumer_id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "algorithm": { "bsonType": "string" },
+          "rsa_public_key": { "bsonType": "string" },
+          "key": { "bsonType": "string" },
+          "secret": { "bsonType": "string" }
+        }
+      }
+      @index#[
+        { "key": { "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "key": 1 }, "name": "jwt_secrets_key_idx" },
+        { "key": { "secret": 1 }, "name": "jwt_secrets_secret_idx" },
+        { "key": { "consumer_id": 1 }, "name": "jwt_secrets_consumer_id_idx" }
+      ]
+      %]]
   }
 }

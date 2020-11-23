@@ -36,6 +36,15 @@ return {
   },
 
   mongo = {
-    up = [[]]
+    up = [[
+      @name#jwt_secrets
+      @querytype#update
+      @validator#{
+        "set": {
+          "tags": { "bsonType": "array", "items": { "bsonType": "string" } }
+        }
+      }
+      %
+      ]]
   }
 }

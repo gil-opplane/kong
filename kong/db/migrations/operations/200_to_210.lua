@@ -669,7 +669,7 @@ local mongo = {
     ------------------------------------------------------------------------------
     -- Update keys to workspace-aware formats
     ws_update_keys = function(_, connector, table_name, unique_keys, is_partitioned)
-      print('Teardown ws_update_keys 200_to_210 <- to do')
+      -- TODO [M] not needed for now
       local function dump(o)
         if type(o) == 'table' then
           local s = '{ '
@@ -682,7 +682,7 @@ local mongo = {
           return tostring(o)
         end
       end
-      print(string.format("%s, %s, %s", table_name, dump(unique_keys), is_partitioned))
+      --print(string.format("%s, %s, %s", table_name, dump(unique_keys), is_partitioned))
       return true
     end,
     ------------------------------------------------------------------------------

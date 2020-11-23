@@ -29,6 +29,25 @@ return {
   },
 
   mongo = {
-    up = [[]],
+    up = [[
+      @name#response_ratelimiting_metrics
+      @querytype#create
+      @validator#{
+        "bsonType": "object",
+        "required": ["route_id", "service_id", "identifier", "period_date", "period"],
+        "properties": {
+          "route_id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "service_id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "period_date": { "bsonType": "number", "pattern": "^[0-9]{13}$" },
+          "period": { "bsonType": "string" },
+          "identifier": { "bsonType": "string" },
+          "value": { "bsonType": "int" }
+        }
+      }
+      @index#[
+        { "key": { "route_id": 1, "service_id": 1, "identifier": 1, "period_date": 1, "period": 1 }, "name": "primary_key", "unique": true }
+      ]
+      %
+      ]],
   }
 }

@@ -36,6 +36,15 @@ return {
   },
 
   mongo = {
-    up = [[]],
+    up = [[
+      @name#basicauth_credentials
+      @querytype#update
+      @validator#{
+        "set": {
+          "tags": { "bsonType": "array", "items": { "bsonType": "string" } }
+        }
+      }
+      %
+      ]],
   },
 }

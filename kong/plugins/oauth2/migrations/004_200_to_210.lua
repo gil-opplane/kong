@@ -88,7 +88,25 @@ return {
   },
 
   mongo = {
-    up = [[]],
+    up = [[
+      @name#oauth2_authorization_codes
+      @querytype#update
+      @validator#{
+        "set": {
+          "challenge": { "bsonType": "string" },
+          "challenge_method": { "bsonType": "string" }
+        }
+      }
+      %
+      @name#oauth2_credentials
+      @querytype#update
+      @validator#{
+        "set": {
+          "client_type": { "bsonType": "string" },
+          "hash_secret": { "bsonType": "bool" }
+        }
+      }
+      %]],
 
     teardown = ws_migration_teardown(operations.mongo.teardown),
   }

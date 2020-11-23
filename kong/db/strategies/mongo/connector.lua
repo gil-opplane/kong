@@ -122,9 +122,9 @@ end
 
 -- specific to 'schema_meta' records
 local function convert_schema_meta(userdata)
-  local record = {}
   local records = {}
   for rec in userdata:iterator() do
+    local record = {}
     record.key = rec.key
     record.subsystem = rec.subsystem
     record.last_executed = rec.last_executed
@@ -585,9 +585,9 @@ do
           val = { validator = {}}
           val.validator["$jsonSchema"] = cjson.decode(table_struct.validator or '{}')
           local _, err = db:createCollection(table_struct.name, to_bson(val))
-          if err then
-            return nil, err
-          end
+          --if err then
+          --  return nil, err
+          --end
 
         end
 
@@ -636,7 +636,7 @@ do
               return nil, err
             end
           elseif index_changes.del then
-            -- TODO for now only hiding indexes, but must drop them
+            -- TODO [M] for now only hiding indexes, but must drop them
             for _, name in ipairs(index_changes.del) do
               local query = {
                 collMod = table_struct.name,

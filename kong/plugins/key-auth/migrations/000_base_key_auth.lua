@@ -31,6 +31,25 @@ return {
   },
 
   mongo = {
-    up = [[]]
+    up = [[
+      @name#keyauth_credentials
+      @querytype#create
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "created_at": { "bsonType": "number", "pattern": "^[0-9]{13}$" },
+          "consumer_id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "key": { "bsonType": "string" }
+        }
+      }
+      @index#[
+        { "key": { "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "key": 1 }, "name": "keyauth_credentials_group_idx" },
+        { "key": { "consumer_id": 1 }, "name": "keyauth_credentials_consumer_id_idx" }
+      ]
+      %
+      ]]
   }
 }

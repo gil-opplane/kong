@@ -33,6 +33,25 @@ return {
   },
 
   mongo = {
-    up = [[]],
+    up = [[
+      @name#hmacauth_credentials
+      @querytype#create
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "created_at": { "bsonType": "number", "pattern": "^[0-9]{13}$" },
+          "consumer_id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "username": { "bsonType": "string" },
+          "secret": { "bsonType": "string" }
+        }
+      }
+      @index#[
+        { "key": { "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "consumer_id": 1 }, "name": "hmacauth_consumer_id_idx" },
+        { "key": { "username": 1 }, "name": "hmacauth_username_idx" }
+      ]
+      %]],
   },
 }

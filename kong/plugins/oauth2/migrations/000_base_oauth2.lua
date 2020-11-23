@@ -156,6 +156,80 @@ return {
   },
 
   mongo = {
-    up = [[]]
+    up = [[
+      @name#oauth2_credentials
+      @querytype#create
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "created_at": { "bsonType": "number", "pattern": "^[0-9]{13}$" },
+          "consumer_id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "client_id": { "bsonType": "string" },
+          "client_secret": { "bsonType": "string" },
+          "name": { "bsonType": "string" },
+          "redirect_uris": { "bsonType": "string" }
+        }
+      }
+      @index#[
+        { "key": { "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "consumer_id": 1 }, "name": "oauth2_credentials_consumer_id_idx" },
+        { "key": { "client_id": 1 }, "name": "oauth2_credentials_client_id_idx" },
+        { "key": { "client_secret": 1 }, "name": "oauth2_credentials_client_secret_idx" }
+      ]
+      %
+      @name#oauth2_authorization_codes
+      @querytype#create
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "created_at": { "bsonType": "number", "pattern": "^[0-9]{13}$" },
+          "service_id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "credential_id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "authenticated_userid": { "bsonType": "string" },
+          "code": { "bsonType": "string" },
+          "scope": { "bsonType": "string" }
+        }
+      }
+      @index#[
+        { "key": { "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "code": 1 }, "name": "oauth2_authorization_codes_code_idx" },
+        { "key": { "service_id": 1 }, "name": "oauth2_authorization_codes_service_id_idx" },
+        { "key": { "credential_id": 1 }, "name": "oauth2_authorization_codes_credential_id_idx" },
+        { "key": { "authenticated_userid": 1 }, "name": "oauth2_authorization_codes_authenticated_userid_idx" },
+        { "key": { "created_at": 1 }, "name": "ttl", "expireAfterSeconds": 300 }
+      ]
+      %
+      @name#oauth2_tokens
+      @querytype#create
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "created_at": { "bsonType": "number", "pattern": "^[0-9]{13}$" },
+          "service_id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "credential_id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "access_token": { "bsonType": "string" },
+          "authenticated_userid": { "bsonType": "string" },
+          "refresh_token": { "bsonType": "string" },
+          "scope": { "bsonType": "string" },
+          "token_type": { "bsonType": "string" },
+          "expires_in": { "bsonType": "int" }
+        }
+      }
+      @index#[
+        { "key": { "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "access_token": 1 }, "name": "oauth2_tokens_access_tokens_idx" },
+        { "key": { "service_id": 1 }, "name": "oauth2_tokens_service_id_idx" },
+        { "key": { "refresh_token": 1 }, "name": "oauth2_tokens_refresh_token_idx" },
+        { "key": { "authenticated_userid": 1 }, "name": "oauth2_tokens_authenticated_userid_idx" },
+        { "key": { "credential_id": 1 }, "name": "oauth2_tokens_credential_id_idx" }
+      ]
+      %
+      ]]
   }
 }

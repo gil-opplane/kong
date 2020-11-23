@@ -33,6 +33,26 @@ return {
   },
 
   mongo = {
-    up = [[]],
+    up = [[
+      @name#basicauth_credentials
+      @querytype#create
+      @validator#{
+        "bsonType": "object",
+        "required": ["id"],
+        "properties": {
+          "id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "created_at": { "bsonType": "number", "pattern": "^[0-9]{13}$" },
+          "consumer_id": { "bsonType": "string", "pattern": "^.{8}[-].{4}[-].{4}[-].{4}[-].{12}$" },
+          "password": { "bsonType": "string" },
+          "username": { "bsonType": "string" }
+        }
+      }
+      @index#[
+        { "key": { "id": 1 }, "name": "primary_key", "unique": true },
+        { "key": { "username": 1 }, "name": "basicauth_username_idx" },
+        { "key": { "consumer_id": 1 }, "name": "basicauth_consumer_id_idx" }
+      ]
+      %
+      ]],
   },
 }
