@@ -846,7 +846,7 @@
 #mongo_port = 27017              # Port of the Mongo server.
 #mongo_user = kong               # Mongo user.
 #mongo_password = admin          # Mongo user's password.
-#mongo_database = mtasDB         # Mongo database.
+#mongo_database = kong_dbs         # Mongo database.
 #mongo_timeout = 5000            # Defines the timeout (in ms), for connecting,
                                  # reading and writing.
 

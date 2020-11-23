@@ -399,6 +399,16 @@ local CONF_INFERENCES = {
                        },
 
   database = { enum = { "postgres", "cassandra", "mongo", "off" }  },
+
+  mongo_hosts ={ typ = "string" },
+  mongo_port = { typ = "number" },
+  mongo_user = { typ = "string" },
+  mongo_password = { typ = "string" },
+  mongo_auth_database = { typ = "string" },
+  mongo_database = { typ = "string" },
+  mongo_replica_set =      { typ = "array" },
+  mongo_shard_hosts =  { typ = "array" },
+
   pg_port = { typ = "number" },
   pg_timeout = { typ = "number" },
   pg_password = { typ = "string" },
