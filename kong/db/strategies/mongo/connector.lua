@@ -252,7 +252,7 @@ function MongoConnector:init()
 end
 
 function MongoConnector:init_worker(_)
-  -- still have to understand wtf this does
+  -- TODO still have to understand what this does
   print('(MongoConnector.init_worker) To Do')
 end
 
@@ -273,12 +273,12 @@ end
 function MongoConnector:connect()
   local conn = self:get_stored_connection()
   if conn then
-    return conn.client
+    return conn.client, conn.database
   end
 
   local client, err = assert(mongo.Client(self.server_url))
   if err then
-    return nil, err
+    return nil, nil, err
   end
 
   local connection = {
@@ -305,6 +305,22 @@ function MongoConnector:close()
     end
   end
 
+  return true
+end
+
+function MongoConnector:schema_reset()
+  local connection, err = self:get_stored_connection()
+  if err then
+    return nil, err
+  end
+  local client      = connection.client
+  local database    = connection.database
+  local db = client:getDatabase(database)
+  local ok
+  ok, err = db:drop()
+  if not ok then
+    return nil, err
+  end
   return true
 end
 
@@ -358,7 +374,7 @@ function MongoConnector:insert_lock(key, ttl, owner)
   local connection = self:get_stored_connection()
   --print(string.format("insert_lock connection: %s", dump(connection)))
   if not connection then
-    local client, database = self:connect()
+    local client, database, err = self:connect()
     connection = {
       client = client,
       database = database
@@ -386,7 +402,7 @@ function MongoConnector:read_lock(key)
   local connection = self:get_stored_connection()
   --print(string.format("read_lock connection: %s", dump(connection)))
   if not connection then
-    local client, database = self:connect()
+    local client, database, err = self:connect()
     connection = {
       client = client,
       database = database
@@ -415,7 +431,7 @@ function MongoConnector:remove_lock(key, owner)
   local connection = self:get_stored_connection()
   --print(string.format("remove_lock connection: %s", dump(connection)))
   if not connection then
-    local client, database = self:connect()
+    local client, database, err = self:connect()
     connection = {
       client = client,
       database = database
