@@ -142,6 +142,16 @@ local function removeFirst(tbl, val)
 end
 local remove = removeFirst
 
+-- bugfix: when an empty table is converted to JSON, even if it's supposed to
+--  be an array, it will always convert to '{}'. manual fix here
+local function fix_arrays(json, keys)
+  local new_json = json
+  for _, key in ipairs(keys) do
+    new_json = new_json:gsub(fmt('"%s":{}', key), fmt('"%s":[]', key))
+  end
+  return new_json
+end
+
 function MongoConnector.new(kong_config)
   local resolved_endpoints = {}
   local dns_tools = require "kong.tools.dns"
@@ -276,7 +286,7 @@ end
 
 function MongoConnector:setup_locks(default_locks_ttl,_)
   local connection = self:get_stored_connection()
-  print(string.format("setup_locks connection: %s", dump(connection)))
+  --print(string.format("setup_locks connection: %s", dump(connection)))
   if not connection then
     error("no connection")
   end
@@ -322,7 +332,7 @@ end
 
 function MongoConnector:insert_lock(key, ttl, owner)
   local connection = self:get_stored_connection()
-  print(string.format("insert_lock connection: %s", dump(connection)))
+  --print(string.format("insert_lock connection: %s", dump(connection)))
   if not connection then
     local client, database = self:connect()
     connection = {
@@ -345,17 +355,12 @@ function MongoConnector:insert_lock(key, ttl, owner)
     return nil, err
   end
 
-  res = res[1]
-  if not res then
-    return nil, "unexpected result"
-  end
-
-  return res["[applied]"]
+  return true
 end
 
 function MongoConnector:read_lock(key)
   local connection = self:get_stored_connection()
-  print(string.format("read_lock connection: %s", dump(connection)))
+  --print(string.format("read_lock connection: %s", dump(connection)))
   if not connection then
     local client, database = self:connect()
     connection = {
@@ -384,7 +389,7 @@ end
 
 function MongoConnector:remove_lock(key, owner)
   local connection = self:get_stored_connection()
-  print(string.format("remove_lock connection: %s", dump(connection)))
+  --print(string.format("remove_lock connection: %s", dump(connection)))
   if not connection then
     local client, database = self:connect()
     connection = {
@@ -398,12 +403,11 @@ function MongoConnector:remove_lock(key, owner)
   local coll_name   = 'locks'
 
   local collection = client:getCollection(database, coll_name)
-  local cursor, err = collection:removeMany({
+  local res, err = collection:removeMany({
     key = key,
     owner = owner
   })
 
-  local res, err = cursor:value()
   if not res then
     return nil, err
   end
@@ -499,9 +503,10 @@ do
 
     log.debug(fmt("successfully created %s collection", SCHEMA_META_KEY))
 
+    -- TODO can't put 'unique' otherwise it fails on '003' by duplication
     local index = {
       createIndexes = SCHEMA_META_KEY,
-      indexes = { { key = { key = 1, subsystem = 1 }, name = "primary_key", unique = true } }
+      indexes = { { key = { key = 1, subsystem = 1 }, name = "primary_key" } }
     }
     local index_json = cjson.encode(index)
     local idx, err = client:command(database, mongo.BSON(index_json))
@@ -612,7 +617,7 @@ do
           elseif index_changes.del then
             -- TODO for now only hiding indexes, but must drop them
             for _, name in ipairs(index_changes.del) do
-              query = {
+              local query = {
                 collMod = table_struct.name,
                 index = {
                   name = name,
@@ -688,7 +693,11 @@ do
     end
 
     local res
-    res, err = collection:update(cjson.encode(where), cjson.encode(set), { upsert = true })
+    -- bugfix: converting empty tables to empty arrays is not possible
+    set = fix_arrays(cjson.encode(set), { "executed", "pending" })
+    where = cjson.encode(where)
+    --print(string.format("\n\n\nwhere: %s \n\n\n set: %s \n\n\n", where, set))
+    res, err = collection:update(where, set, { upsert = true })
     if not res then
       return nil, err
     end
