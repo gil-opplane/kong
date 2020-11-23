@@ -112,7 +112,8 @@ end
 
 -- specific to 'schema_meta' records
 local function convert_schema_meta(userdata)
-  local record, records = {}
+  local record = {}
+  local records = {}
   for rec in userdata:iterator() do
     record.key = rec.key
     record.subsystem = rec.subsystem
@@ -134,11 +135,13 @@ local function split(str, pattern)
 end
 
 local function removeFirst(tbl, val)
-  for i, v in ipairs(tbl) do
+  local _tbl = tbl
+  for i, v in ipairs(_tbl) do
     if v == val then
-      return table.remove(tbl, i)
+      table.remove(_tbl, i)
     end
   end
+  return _tbl
 end
 local remove = removeFirst
 
@@ -503,7 +506,6 @@ do
 
     log.debug(fmt("successfully created %s collection", SCHEMA_META_KEY))
 
-    -- TODO can't put 'unique' otherwise it fails on '003' by duplication
     local index = {
       createIndexes = SCHEMA_META_KEY,
       indexes = { { key = { key = 1, subsystem = 1 }, name = "primary_key" } }
@@ -659,48 +661,154 @@ do
     local where = { key = SCHEMA_META_KEY, subsystem = subsystem }
 
     local cursor, err = collection:find(where)
-    if err then
-      return nil, err
-    end
     local migration = cursor:value()
-    local executed
-    local pending
+    print(string.format("migration: %s", dump(migration)))
+    print(string.format("current mig: %s", name))
 
-    if not migration then
-      executed = {}
-      pending = {}
-    else
-       executed = migration.executed and remove_deep_key(migration.executed, '__array') or {}
-       pending = migration.pending and remove_deep_key(migration.pending, '__array') or {}
-    end
-
-    local set = where
-
+    print(string.format('<---------------------------------------> STATE: %s', state))
     if state == 'executed' then
-      insert(executed,  name )
-      set.last_executed = name
-      set.executed = executed
+      if not migration then
+        local res, err = collection:insert(mongo.BSON(fix_arrays(cjson.encode({
+          key = SCHEMA_META_KEY,
+          subsystem = subsystem,
+          pending = {},
+          executed = { name },
+          last_executed = name
+        }), { 'executed', 'pending' })))
+        if not res then
+          return nil, err
+        end
+      else
+        local new_executed = migration.executed
+        new_executed[#new_executed+1] = name
+        new_executed = remove_deep_key(new_executed, '__array')
+        local res, err = collection:update(
+          mongo.BSON(cjson.encode(where)),
+          mongo.BSON(fix_arrays(cjson.encode({
+            key = SCHEMA_META_KEY,
+            subsystem = subsystem,
+            pending = remove_deep_key(migration.pending, '__array'),
+            executed = new_executed,
+            last_executed = name
+          }), { 'executed', 'pending' }))
+        )
+        if not res then
+          return nil, err
+        end
+      end
     elseif state == 'pending' then
-      insert(pending,  name )
-      set.pending = pending
+      if not migration then
+        local res, err = collection:insert(mongo.BSON(fix_arrays(cjson.encode({
+          key = SCHEMA_META_KEY,
+          subsystem = subsystem,
+          pending = { name },
+          executed = {},
+          last_executed = ""
+        }), { 'executed', 'pending' })))
+        if not res then
+          return nil, err
+        end
+      else
+        local new_pending = migration.pending
+        new_pending[#new_pending +1] = name
+        new_pending = remove_deep_key(new_pending, '__array')
+        local res, err = collection:update(
+          mongo.BSON(cjson.encode(where)),
+          mongo.BSON(fix_arrays(cjson.encode({
+            key = SCHEMA_META_KEY,
+            subsystem = subsystem,
+            pending = new_pending,
+            executed = remove_deep_key(migration.executed, '__array'),
+            last_executed = migration.last_executed
+          }), { 'executed', 'pending' }))
+        )
+        if not res then
+          return nil, err
+        end
+      end
     elseif state == 'teardown' then
-      remove(pending,  name )
-      insert(executed,  name )
-      set.pending = pending
-      set.executed = executed
+      if not migration then
+        local res, err = collection:insert(mongo.BSON(fix_arrays(cjson.encode({
+          key = SCHEMA_META_KEY,
+          subsystem = subsystem,
+          pending = {},
+          executed = { name },
+          last_executed = name
+        }), { 'executed', 'pending' })))
+        if not res then
+          return nil, err
+        end
+      else
+        local new_executed = migration.executed
+        new_executed[#new_executed+1] = name
+        new_executed = remove_deep_key(new_executed, '__array')
+        local new_pending = migration.pending
+        new_pending = remove(new_pending, name)
+        print(new_pending)
+        new_pending = remove_deep_key(new_pending, '__array')
+        print(mongo.BSON(fix_arrays(cjson.encode({
+          key = SCHEMA_META_KEY,
+          subsystem = subsystem,
+          pending = new_pending,
+          executed = new_executed,
+          last_executed = name
+        }), { 'executed', 'pending' })))
+        local res, err = collection:update(
+          mongo.BSON(cjson.encode(where)),
+          mongo.BSON(fix_arrays(cjson.encode({
+            key = SCHEMA_META_KEY,
+            subsystem = subsystem,
+            pending = new_pending,
+            executed = new_executed,
+            last_executed = name
+          }), { 'executed', 'pending' }))
+        )
+        if not res then
+          return nil, err
+        end
+      end
     else
       error("unknown 'state' argument: " .. tostring(state))
     end
 
-    local res
-    -- bugfix: converting empty tables to empty arrays is not possible
-    set = fix_arrays(cjson.encode(set), { "executed", "pending" })
-    where = cjson.encode(where)
-    --print(string.format("\n\n\nwhere: %s \n\n\n set: %s \n\n\n", where, set))
-    res, err = collection:update(where, set, { upsert = true })
-    if not res then
-      return nil, err
-    end
+
+    --if err then
+    --  return nil, err
+    --end
+    --local migration = cursor:value()
+    --local executed
+    --local pending
+--
+    --if not migration then
+    --  executed = {}
+    --  pending = {}
+    --else
+    --   executed = migration.executed and remove_deep_key(migration.executed, '__array') or {}
+    --   pending = migration.pending and remove_deep_key(migration.pending, '__array') or {}
+    --end
+--
+    --local set = where
+    --set.executed = executed
+    --set.pending = pending
+--
+--
+--
+    --local res
+    ---- bugfix: converting empty tables to empty arrays is not possible
+    --set = fix_arrays(cjson.encode(set), { "executed", "pending" })
+    --where = cjson.encode(where)
+--
+    --if not migration then
+    --  res, err = collection:insert(mongo.BSON(set))
+    --else
+    --  print(string.format("core migrations on db: %s", dump(collection:find(mongo.BSON(where)):value())))
+    --  print(string.format("new executed migrations: %s", dump(set)))
+    --  res, err = collection:update(mongo.BSON(where), mongo.BSON(set))
+    --end
+--
+    --if not res then
+    --  return nil, err
+    --end
 
     return true
   end
