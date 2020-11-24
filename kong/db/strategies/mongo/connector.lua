@@ -254,6 +254,7 @@ end
 function MongoConnector:init_worker(_)
   -- TODO still have to understand what this does
   print('(MongoConnector.init_worker) To Do')
+  return true
 end
 
 function MongoConnector:infos()
