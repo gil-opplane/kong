@@ -488,11 +488,12 @@ do
 
 
   build_plugins_iterator = function(version)
-    local new_iterator, err = PluginsIterator.new(version)
-    if not new_iterator then
-      return nil, err
-    end
-    plugins_iterator = new_iterator
+    -- TODO [M] must fix bug related to this
+    --local new_iterator, err = PluginsIterator.new(version)
+    --if not new_iterator then
+    --  return nil, err
+    --end
+    --plugins_iterator = new_iterator
     return true
   end
 

@@ -39,14 +39,29 @@ local _M  = {}
 local _mt = {}
 _mt.__index = _mt
 
+local function get_ws_id()
+  local phase = get_phase()
+  if phase ~= "init" and phase ~= "init_worker" then
+    return ngx.ctx.workspace or kong.default_workspace
+  end
+end
+
 function _M.new(connector, schema, errors)
-  --print(fmt("\n\nconnector: %s\n\nschema: %s\n\nerrors: %s\n\n", dump(connector), dump(schema), dump(errors)))
   local self = {
     connector = connector, -- instance of kong.db.strategies.mongo.init
     schema = schema,
     errors = errors,
   }
   return setmetatable(self, _mt)
+end
+
+function _mt:insert(entity, options)
+  local collection = self.schema.name
+
+  print(fmt("\n\n\nentity: %s\n\noptions: %s\n\n\n", dump(entity), dump(options)))
+  print(fmt("\n\n\nconnector: %s\n\nschema: %s\n\n\n", dump(self.connector), dump(self.schema)))
+  print(fmt("\n\n\nschema name: %s\n\n\n", self.schema.name))
+  return {}
 end
 
 function _mt:page(size, offset, options)
