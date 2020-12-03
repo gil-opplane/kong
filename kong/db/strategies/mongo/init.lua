@@ -357,7 +357,6 @@ do
     local client = self.connection.client
     local database = self.connection.database
 
-    local collection = client:getCollection(database, collection_name)
 
     local _, ws_id, err = check_workspace(self, options, false)
     if err then
@@ -373,6 +372,19 @@ do
     for i = 1, #constraints do
       -- TODO [M] check fkeys
     end
+
+    local where = {}
+    for field_name, field in pairs(primary_key) do
+      where[field_name] = serialize_arg(field, primary_key[field_name], ws_id)
+    end
+
+    local collection = client:getCollection(database, collection_name)
+    local deleted, err = collection:removeMany(where)
+    if not deleted then
+      return nil, self.errors:database_error("could not execute selection query: " .. err)
+    end
+
+    return true
 
   end
 end
