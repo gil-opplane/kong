@@ -244,26 +244,22 @@ function _mt:select(primary_key, options)
 end
 
 do
-  -- TODO [M] mongo pagination
-  local function execute_page(self, cql, args, offset, opts)
-    local rows, err = self.connector:query(cql, args, opts, "read")
-    if not rows then
+  local function execute_page(self, collection, where, offset, opts)
+    local cursor, err = collection:find(where, {
+      limit = opts.page_size,
+      skip = tonumber(offset) or 0
+    })
+
+    if not cursor then
       if err:match("Invalid value for the paging state") then
         return nil, self.errors:invalid_offset(offset, err)
       end
-      return nil, self.errors:database_error("could not execute page query: "
-        .. err)
+      return nil, self.errors:database_error("could not execute page query: " .. err)
     end
 
-    local next_offset
-    if rows.meta and rows.meta.paging_state then
-      next_offset = rows.meta.paging_state
-    end
+    local next_offset = opts.paging_state
 
-    rows.meta = nil
-    rows.type = nil
-
-    return rows, nil, next_offset
+    return cursor, nil, next_offset
   end
 
   local function query_page(self, offset, foreign_key, foreign_key_db_columns, opts)
@@ -278,22 +274,23 @@ do
     local collection  = client:getCollection(database, self.schema.name)
 
     local where = {}
-    local cursor
     local rows = {}
 
     if ws_id then
       where = { ws_id = ws_id }
     end
 
-    cursor = collection:find(where)
+    local cursor, err_t, next_offset = execute_page(self, collection, where, offset, opts)
+    if err_t then
+      return nil, err_t
+    end
+
     for record in cursor:iterator() do
       table.insert(rows, record)
     end
 
     print(fmt("rows: %s\n\n", dump(rows)))
-    -- TODO [M] mongo pagination
-    --local rows, err_t, next_offset = execute_page(self, cql, args, offset, opts)
-    return rows, nil, offset and encode_base64(offset)
+    return rows, nil, next_offset and encode_base64(next_offset)
   end
 
   function _mt:page(size, offset, options, foreign_key, foreign_key_db_columns)
