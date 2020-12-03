@@ -1,16 +1,12 @@
 local iteration = require "kong.db.iteration"
 local cjson     = require "cjson"
+local mongo       = require "mongo"
 
 local fmt           = string.format
 local rep           = string.rep
 local sub           = string.sub
 local byte          = string.byte
 local null          = ngx.null
-local type          = type
-local error         = error
-local pairs         = pairs
-local ipairs        = ipairs
-local insert        = table.insert
 local concat        = table.concat
 local get_phase     = ngx.get_phase
 local setmetatable  = setmetatable
@@ -29,6 +25,74 @@ local function dump(o)
   else
     return tostring(o)
   end
+end
+
+local function chain(obj, f_table)
+  for _, fn in ipairs(f_table) do
+    if type(fn) ~= 'table' then
+      obj = fn(obj)
+    else
+      local args = fn
+      fn = table.remove(args, 1)
+      obj = fn(obj, args)
+    end
+  end
+  return obj
+end
+
+local function to_bson(tbl)
+  return chain(tbl, {cjson.encode, mongo.BSON})
+end
+
+local function serialize_arg(field, arg, ws_id)
+  local serialized_arg
+
+  if arg == null then
+    serialized_arg = null
+
+  elseif field.type == "string" then
+    local _arg = arg
+    if field.unique and ws_id and not field.unique_across_ws then
+      _arg = ws_id .. ":" .. arg
+    end
+    serialized_arg = _arg
+
+  elseif field.type == "array" then
+    local t = {}
+    for i = 1, #arg do
+      t[i] = serialize_arg(field.elements, arg[i], ws_id)
+    end
+    serialized_arg = #t == 0 and null or t
+
+  elseif field.type == "set" then
+    local t = {}
+    for i = 1, #arg do
+      t[i] = serialize_arg(field.elements, arg[i], ws_id)
+    end
+
+    serialized_arg = #t == 0 and null or t
+
+  elseif field.type == "map" then
+    local t = {}
+    for k, v in pairs(arg) do
+      t[k] = serialize_arg(field.values, arg[k], ws_id)
+    end
+    serialized_arg = #t == 0 and null or t
+
+  elseif field.type == "record" then
+    serialized_arg = arg
+
+  elseif field.type == "foreign" then
+    local fk_pk = field.schema.primary_key[1]
+    local fk_field = field.schema.fields[fk_pk]
+    serialized_arg = serialize_arg(fk_field, arg[fk_pk], ws_id)
+
+  else
+    serialized_arg = arg
+
+  end
+
+  return serialized_arg
 end
 
 
@@ -99,7 +163,19 @@ local function check_workspace(self, options, use_null)
 end
 
 function _M.new(connector, schema, errors)
+  local client, err = assert(mongo.Client(connector.server_url))
+  if err then
+    return nil, err
+  end
+  local database = connector.config.database
+
+  local connection = {
+    client = client,
+    database = database
+  }
+
   local self = {
+    connection = connection,
     connector = connector, -- instance of kong.db.strategies.mongo.init
     schema = schema,
     errors = errors,
@@ -110,26 +186,143 @@ end
 function _mt:insert(entity, options)
   local schema = self.schema
   local ttl = schema.ttl and options and options.ttl
-  local collection = self.schema.name
+  local collection_name = self.schema.name
+  local client = self.connection.client
+  local database = self.connection.database
+
+  local collection = client:getCollection(database, collection_name)
 
   local has_ws_id, ws_id, err = check_workspace(self, options, false)
   if err then
     return nil, err
   end
 
-  print(fmt("\n\n\nentity: %s\n\noptions: %s\n\n\n", dump(entity), dump(options)))
-  print(fmt("\n\n\nconnector: %s\n\nschema: %s\n\n\n", dump(self.connector), dump(self.schema)))
-  print(fmt("\n\n\nschema name: %s\n\n\n", self.schema.name))
-  return {}
+  -- TODO [M] missing tag logic (l.870)
+
+  -- TODO [M] ttl logic? (l.887)
+
+  -- TODO [M] create query (with composite key?) (l.904)
+  local query = {
+    partition = collection_name
+  }
+  -- TODO [M] check uniqueness and keys (l.904)
+  for field_name, field in schema:each_field() do
+    if field.type ~= 'foreign' then
+      local value = serialize_arg(field, entity[field_name], ws_id)
+      if value ~= null then
+        query[field_name] = value
+      end
+    end
+  end
+  local res, err = collection:insert(query)
+  if not res then
+    return nil, err
+  end
+
+  local _res = query
+  if has_ws_id then
+    _res.ws_id = ws_id
+  end
+  return _res
 end
 
 function _mt:select(primary_key, options)
+  local schema = self.schema
+  local collection_name = self.schema.name
+  local client = self.connection.client
+  local database = self.connection.database
+
+  local collection = client:getCollection(database, collection_name)
+
+  local _, ws_id, err = check_workspace(self, options, false)
+  if err then
+    return nil, err
+  end
+
+  print(fmt("\n\nprimary_key: %s\n\noptions: %s\n\n", primary_key, dump(options)))
   return {}
 end
 
-function _mt:page(size, offset, options)
-  print(fmt("\n\nsize: %s\n\noffset: %s\n\noptions: %s\n\n", size, offset, dump(options)))
-  return {}, nil, nil
+do
+  -- TODO [M] mongo pagination
+  local function execute_page(self, cql, args, offset, opts)
+    local rows, err = self.connector:query(cql, args, opts, "read")
+    if not rows then
+      if err:match("Invalid value for the paging state") then
+        return nil, self.errors:invalid_offset(offset, err)
+      end
+      return nil, self.errors:database_error("could not execute page query: "
+        .. err)
+    end
+
+    local next_offset
+    if rows.meta and rows.meta.paging_state then
+      next_offset = rows.meta.paging_state
+    end
+
+    rows.meta = nil
+    rows.type = nil
+
+    return rows, nil, next_offset
+  end
+
+  local function query_page(self, offset, foreign_key, foreign_key_db_columns, opts)
+    local client      = self.connection.client
+    local database    = self.connection.database
+
+    local _, ws_id, err = check_workspace(self, opts, true)
+    if err then
+      return nil, err
+    end
+
+    local collection  = client:getCollection(database, self.schema.name)
+
+    local where = {}
+    local cursor
+    local rows = {}
+
+    if ws_id then
+      where = { ws_id = ws_id }
+    end
+
+    cursor = collection:find(where)
+    for record in cursor:iterator() do
+      table.insert(rows, record)
+    end
+
+    print(fmt("rows: %s\n\n", dump(rows)))
+    -- TODO [M] mongo pagination
+    --local rows, err_t, next_offset = execute_page(self, cql, args, offset, opts)
+    return rows, nil, offset and encode_base64(offset)
+  end
+
+  function _mt:page(size, offset, options, foreign_key, foreign_key_db_columns)
+    --print(fmt("\n\nsize: %s\n\noffset: %s\n\noptions: %s\n\nfk: %s\n\nfkdbc: %s\n\n", size, offset, dump(options), foreign_key, dump(foreign_key_db_columns)))
+    local opts = {}
+    if not size then
+      size = self.connector:get_page_size(options)
+    end
+
+    if offset then
+      local offset_decoded = decode_base64(offset)
+      if not offset_decoded then
+        return nil, self.errors:invalid_offset(offset, "bad base64 encoding")
+      end
+
+      offset = offset_decoded
+    end
+
+    opts.page_size = size
+    opts.paging_state = offset
+    opts.workspace = options and options.workspace
+
+    --if options and options.tags then
+    --  return query_page_for_tags(self, size, offset, options.tags, options.tags_cond, opts)
+    --end
+
+    return query_page(self, offset, foreign_key, foreign_key_db_columns, opts)
+  end
+
 end
 
 function _mt:select_by_field(field_name, field_value, options)

@@ -41,7 +41,7 @@ return {
       @querytype#update
       @validator#{
         "set": {
-          "tags": { "bsonType": "array", "items": { "bsonType": "string" } }
+          "tags": { "bsonType": "array", "items": { "bsonType": "string", "pattern": "^[%w%.%-%_~]+$" } }
         }
       }
       %
