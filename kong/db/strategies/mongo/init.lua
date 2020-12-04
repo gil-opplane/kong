@@ -60,14 +60,14 @@ local function serialize_arg(field, arg, ws_id)
   elseif field.type == "array" then
     local t = {}
     for i = 1, #arg do
-      t[i] = serialize_arg(field.elements, arg[i], ws_id)
+      table.insert(t, serialize_arg(field.elements, arg[i], ws_id))
     end
     serialized_arg = #t == 0 and null or t
 
   elseif field.type == "set" then
     local t = {}
     for i = 1, #arg do
-      t[i] = serialize_arg(field.elements, arg[i], ws_id)
+      table.insert(t, serialize_arg(field.elements, arg[i], ws_id))
     end
 
     serialized_arg = #t == 0 and null or t
@@ -271,7 +271,8 @@ do
         end
       end
     end
-    local res, err = collection:insert(query)
+
+    local res, err = collection:insert(to_bson(query))
     if not res then
       return nil, err
     end
