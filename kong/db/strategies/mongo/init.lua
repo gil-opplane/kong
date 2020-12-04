@@ -238,88 +238,204 @@ function _M.new(connector, schema, errors)
   return setmetatable(self, _mt)
 end
 
-function _mt:insert(entity, options)
-  local schema = self.schema
-  local ttl = schema.ttl and options and options.ttl
-  local collection_name = self.schema.name
-  local client = self.connection.client
-  local database = self.connection.database
+-- insertion
+do
+  function _mt:insert(entity, options)
+    local schema = self.schema
+    local ttl = schema.ttl and options and options.ttl
+    local collection_name = self.schema.name
+    local client = self.connection.client
+    local database = self.connection.database
 
-  local collection = client:getCollection(database, collection_name)
+    local collection = client:getCollection(database, collection_name)
 
-  local has_ws_id, ws_id, err = check_workspace(self, options, false)
-  if err then
-    return nil, err
-  end
+    local has_ws_id, ws_id, err = check_workspace(self, options, false)
+    if err then
+      return nil, err
+    end
 
-  -- TODO [M] missing tag logic (l.870)
+    -- TODO [M] missing tag logic (l.870)
 
-  -- TODO [M] ttl logic? (l.887)
+    -- TODO [M] ttl logic? (l.887)
 
-  -- TODO [M] create query (with composite key?) (l.904)
-  local query = {
-    partition = collection_name
-  }
-  -- TODO [M] check uniqueness and fkeys (l.904)
-  for field_name, field in schema:each_field() do
-    if field.type ~= 'foreign' then
-      local value = serialize_arg(field, entity[field_name], ws_id)
-      if value ~= null then
-        query[field_name] = value
+    -- TODO [M] create query (with composite key?) (l.904)
+    local query = {
+      partition = collection_name
+    }
+    -- TODO [M] check uniqueness and fkeys (l.904)
+    for field_name, field in schema:each_field() do
+      if field.type ~= 'foreign' then
+        local value = serialize_arg(field, entity[field_name], ws_id)
+        if value ~= null then
+          query[field_name] = value
+        end
       end
     end
-  end
-  local res, err = collection:insert(query)
-  if not res then
-    return nil, err
-  end
+    local res, err = collection:insert(query)
+    if not res then
+      return nil, err
+    end
 
-  local _res = query
-  if has_ws_id then
-    _res.ws_id = ws_id
+    local _res = query
+    if has_ws_id then
+      _res.ws_id = ws_id
+    end
+    return _res
   end
-  return _res
 end
 
-function _mt:select(primary_key, options)
-  local schema = self.schema
-  local collection_name = self.schema.name
-  local client = self.connection.client
-  local database = self.connection.database
+-- selection
+do
+  function _mt:select(primary_key, options)
+    local schema = self.schema
+    local collection_name = self.schema.name
+    local client = self.connection.client
+    local database = self.connection.database
 
 
-  local _, ws_id, err = check_workspace(self, options, false)
-  if err then
-    return nil, err
+    local _, ws_id, err = check_workspace(self, options, false)
+    if err then
+      return nil, err
+    end
+
+    --print(fmt("\n\n\nprimary_key: %s\n\n\n", dump(primary_key)))
+    local where = {}
+    for field_name, field in pairs(primary_key) do
+      where[field_name] = serialize_arg(field, primary_key[field_name], ws_id)
+    end
+
+    local collection = client:getCollection(database, collection_name)
+    local cursor, err = collection:find(where)
+    if not cursor then
+      return nil, self.errors:database_error("could not execute selection query: " .. err)
+    end
+
+    local rows = {}
+    for record in cursor:iterator() do
+      table.insert(rows, record)
+    end
+    --print(fmt("\n\n\nrows: %s\n\n\n", dump(rows)))
+
+    local row = rows[1]
+    if not row then
+      return nil
+    end
+
+    if row.ws_id and ws_id and row.ws_id ~= ws_id then
+      return nil
+    end
+    return row
   end
 
-  --print(fmt("\n\n\nprimary_key: %s\n\n\n", dump(primary_key)))
-  local where = {}
-  for field_name, field in pairs(primary_key) do
-    where[field_name] = serialize_arg(field, primary_key[field_name], ws_id)
+  function _mt:select_by_field(field_name, field_value, options)
+    print(fmt("\n\nfield_name: %s\n\nfield_value: %s\n\noptions: %s\n\n", field_name, field_value, dump(options)))
+    return {}
+  end
+end
+
+-- deletion
+do
+  function _mt:delete(primary_key, options)
+    --print(fmt("\n\n\n\nprimarykey: %s\n\n\n\n", dump(primary_key)))
+    local schema = self.schema
+    local ttl = schema.ttl and options and options.ttl
+    local collection_name = self.schema.name
+    local client = self.connection.client
+    local database = self.connection.database
+
+
+    local _, ws_id, err = check_workspace(self, options, false)
+    if err then
+      return nil, err
+    end
+
+    if collection_name == "workspaces" then
+      ws_id = primary_key.id
+    end
+
+    local constraints = schema:get_constraints()
+    --print(fmt("\n\n\n\nconstraints: %s\n\n\n\n", dump(constraints)))
+    for i = 1, #constraints do
+      -- TODO [M] check fkeys
+    end
+
+    local where = {}
+    for field_name, field in pairs(primary_key) do
+      where[field_name] = serialize_arg(field, primary_key[field_name], ws_id)
+    end
+
+    local collection = client:getCollection(database, collection_name)
+    local deleted, err = collection:removeMany(where)
+    if not deleted then
+      return nil, self.errors:database_error("could not execute selection query: " .. err)
+    end
+
+    return true
+
+  end
+end
+
+-- update
+do
+
+  local function update(self, primary_key, entity, mode, options)
+    local schema = self.schema
+    local ttl = schema.ttl and options and options.ttl
+    local collection_name = self.schema.name
+    local client = self.connection.client
+    local database = self.connection.database
+
+    local collection = client:getCollection(database, collection_name)
+
+    local _, ws_id, err = check_workspace(self, options, false)
+    if err then
+      return nil, err
+    end
+
+    local where = { partition = schema.name }
+    for field_name, field in pairs(primary_key) do
+      where[field_name] = serialize_arg(field, primary_key[field_name], ws_id)
+    end
+
+    local set = {}
+    set["$set"] = {}
+    -- TODO [M] check uniqueness and fkeys
+    for field_name, field in schema:each_field() do
+      if field.type ~= 'foreign' then
+        local value = serialize_arg(field, entity[field_name], ws_id)
+        if value ~= null then
+          set["$set"][field_name] = value
+        end
+      end
+    end
+
+    set["$set"].id = nil
+
+    local res, err = collection:update(where, set, { upsert = mode == "upsert" })
+    if not res then
+      return nil, self.errors:database_error("could not execute update query: "
+        .. err)
+    end
+
+    local row, err_t = self:select(primary_key, { workspace = ws_id or null })
+    if err_t then
+      return nil, err_t
+    end
+
+    if not row then
+      return nil, self.errors:not_found(primary_key)
+    end
+
+    return row
   end
 
-  local collection = client:getCollection(database, collection_name)
-  local cursor, err = collection:find(where)
-  if not cursor then
-    return nil, self.errors:database_error("could not execute selection query: " .. err)
+  function _mt:update(primary_key, entity, options)
+    return update(self, primary_key, entity, "update", options)
   end
 
-  local rows = {}
-  for record in cursor:iterator() do
-    table.insert(rows, record)
+  function _mt:upsert(primary_key, entity, options)
+    return update(self, primary_key, entity, "upsert", options)
   end
-  --print(fmt("\n\n\nrows: %s\n\n\n", dump(rows)))
-
-  local row = rows[1]
-  if not row then
-    return nil
-  end
-
-  if row.ws_id and ws_id and row.ws_id ~= ws_id then
-    return nil
-  end
-  return row
 end
 
 -- pagination
@@ -400,53 +516,6 @@ do
     return query_page(self, offset, foreign_key, foreign_key_db_columns, opts)
   end
 
-end
-
--- deletion
-do
-  function _mt:delete(primary_key, options)
-    --print(fmt("\n\n\n\nprimarykey: %s\n\n\n\n", dump(primary_key)))
-    local schema = self.schema
-    local ttl = schema.ttl and options and options.ttl
-    local collection_name = self.schema.name
-    local client = self.connection.client
-    local database = self.connection.database
-
-
-    local _, ws_id, err = check_workspace(self, options, false)
-    if err then
-      return nil, err
-    end
-
-    if collection_name == "workspaces" then
-      ws_id = primary_key.id
-    end
-
-    local constraints = schema:get_constraints()
-    --print(fmt("\n\n\n\nconstraints: %s\n\n\n\n", dump(constraints)))
-    for i = 1, #constraints do
-      -- TODO [M] check fkeys
-    end
-
-    local where = {}
-    for field_name, field in pairs(primary_key) do
-      where[field_name] = serialize_arg(field, primary_key[field_name], ws_id)
-    end
-
-    local collection = client:getCollection(database, collection_name)
-    local deleted, err = collection:removeMany(where)
-    if not deleted then
-      return nil, self.errors:database_error("could not execute selection query: " .. err)
-    end
-
-    return true
-
-  end
-end
-
-function _mt:select_by_field(field_name, field_value, options)
-  print(fmt("\n\nfield_name: %s\n\nfield_value: %s\n\noptions: %s\n\n", field_name, field_value, dump(options)))
-  return {}
 end
 
 return _M
