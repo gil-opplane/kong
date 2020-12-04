@@ -179,7 +179,62 @@ function _M.new(connector, schema, errors)
     connector = connector, -- instance of kong.db.strategies.mongo.init
     schema = schema,
     errors = errors,
+    foreign_keys_db_columns = {},
   }
+
+
+  -- foreign keys constraints and page_for_ selector methods
+
+  for field_name, field in schema:each_field() do
+    if field.type == "foreign" then
+      local foreign_schema = field.schema
+      local foreign_pk     = foreign_schema.primary_key
+      local foreign_pk_len = #foreign_pk
+      local db_columns     = {}
+
+      for i = 1, foreign_pk_len do
+        for foreign_field_name, foreign_field in foreign_schema:each_field() do
+          if foreign_field_name == foreign_pk[i] then
+            table.insert(db_columns, {
+              col_name           = field_name .. "_" .. foreign_pk[i],
+              foreign_field      = foreign_field,
+              foreign_field_name = foreign_field_name,
+            })
+          end
+        end
+      end
+
+      local db_columns_args_names = {}
+
+      for i = 1, #db_columns do
+        -- keep args_names for 'page_for_*' methods
+        db_columns_args_names[i] = db_columns[i].col_name .. " = ?"
+      end
+
+      db_columns.args_names = concat(db_columns_args_names, " AND ")
+
+      self.foreign_keys_db_columns[field_name] = db_columns
+    end
+  end
+
+  -- generate page_for_ method for inverse selection
+  -- e.g. routes:page_for_service(service_pk)
+  for field_name, field in schema:each_field() do
+    if field.type == "foreign" then
+
+      local method_name = "page_for_" .. field_name
+      local db_columns = self.foreign_keys_db_columns[field_name]
+
+      local select_foreign_bind_args = {}
+      for _, foreign_key_column in ipairs(db_columns) do
+        table.insert(select_foreign_bind_args, foreign_key_column.col_name .. " = ?")
+      end
+
+      self[method_name] = function(self, foreign_key, size, offset, options)
+        return self:page(size, offset, options, foreign_key, db_columns)
+      end
+    end
+  end
   return setmetatable(self, _mt)
 end
 
