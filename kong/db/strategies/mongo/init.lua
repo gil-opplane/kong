@@ -14,6 +14,14 @@ local encode_base64 = ngx.encode_base64
 local decode_base64 = ngx.decode_base64
 local workspaces_strategy
 
+local cache_key_field = { type = "string" }
+local ws_id_field = { type = "string", uuid = true }
+
+local _M  = {}
+
+local _mt = {}
+_mt.__index = _mt
+
 local function dump(o)
   if type(o) == 'table' then
     local s = '{ '
@@ -27,20 +35,32 @@ local function dump(o)
   end
 end
 
-local function chain(obj, f_table)
+local function chain(o, f_table)
   for _, fn in ipairs(f_table) do
     if type(fn) ~= 'table' then
-      obj = fn(obj)
+      o = fn(o)
     else
       local args = fn
       fn = table.remove(args, 1)
-      obj = fn(obj, args)
+      o = fn(o, args)
     end
   end
-  return obj
+  return o
 end
 
-local function to_bson(tbl)
+local function clear_nulls(o)
+  for k, v in pairs(o) do
+    if v == null then
+      o[k] = nil
+    end
+  end
+  return o
+end
+
+local function to_bson(tbl, clear)
+  if clear then
+    return chain(tbl, {clear_nulls, cjson.encode, mongo.BSON})
+  end
   return chain(tbl, {cjson.encode, mongo.BSON})
 end
 
@@ -95,17 +115,208 @@ local function serialize_arg(field, arg, ws_id)
   return serialized_arg
 end
 
+local function deserialize_aggregates(value, field)
+  if field.type == "record" then
+    if type(value) == "string" then
+      value = cjson.decode(value)
+    end
 
-local _M  = {}
+  elseif field.type == "set" then
+    if type(value) == "table" then
+      for i = 1, #value do
+        value[i] = deserialize_aggregates(value[i], field.elements)
+      end
+    end
+  end
 
-local _mt = {}
-_mt.__index = _mt
+  if value == nil then
+    return null
+  end
+
+  return value
+end
+
+function _mt:deserialize_row(row)
+  if not row then
+    error("row must be a table", 2)
+  end
+
+  -- deserialize rows
+  -- replace `nil` fields with `ngx.null`
+  -- replace `foreign_key` with `foreign = { key = "" }`
+  -- return timestamps in seconds instead of ms
+
+  for field_name, field in self.schema:each_field() do
+    local ws_unique = field.unique and not field.unique_across_ws
+
+    if field.type == "foreign" then
+      local db_columns = self.foreign_keys_db_columns[field_name]
+
+      local has_fk
+      row[field_name] = {}
+
+      for i = 1, #db_columns do
+        local col_name = db_columns[i].col_name
+
+        if row[col_name] ~= nil then
+          row[field_name][db_columns[i].foreign_field_name] = row[col_name]
+          row[col_name] = nil
+
+          has_fk = true
+        end
+      end
+
+      if not has_fk then
+        row[field_name] = null
+      end
+
+    elseif field.timestamp and row[field_name] ~= nil then
+      row[field_name] = row[field_name] / 1000
+
+    elseif field.type == "string" and ws_unique and row[field_name] ~= nil then
+      local value = row[field_name]
+      -- for regular 'unique' values (that are *not* 'unique_across_ws')
+      -- value is of the form "<uuid>:<value>" in the DB: strip the "<uuid>:"
+      if byte(value, 37) == byte(":") then
+        row[field_name] = sub(value, 38)
+      end
+
+    else
+      row[field_name] = deserialize_aggregates(row[field_name], field)
+    end
+  end
+
+  return row
+end
 
 local function get_ws_id()
   local phase = get_phase()
   if phase ~= "init" and phase ~= "init_worker" then
     return ngx.ctx.workspace or kong.default_workspace
   end
+end
+
+local function foreign_pk_exists(self, field_name, field, foreign_pk, ws_id)
+  local foreign_schema = field.schema
+  local foreign_strategy = _M.new(self.connector, foreign_schema,
+    self.errors)
+
+  local foreign_row, err_t = foreign_strategy:select(foreign_pk, { workspace = ws_id or null })
+  if err_t then
+    return nil, err_t
+  end
+
+  if not foreign_row then
+    return nil, self.errors:foreign_key_violation_invalid_reference(foreign_pk,
+      field_name,
+      foreign_schema.name)
+  end
+
+  if ws_id and foreign_row.ws_id and foreign_row.ws_id ~= ws_id then
+    return nil, self.errors:invalid_workspace(foreign_row.ws_id or "null")
+  end
+
+  return true
+end
+
+local function serialize_foreign_pk(db_columns, args, args_names, foreign_pk, ws_id)
+  for _, db_column in ipairs(db_columns) do
+    local to_serialize
+
+    if foreign_pk == null then
+      to_serialize = null
+
+    else
+      to_serialize = foreign_pk[db_column.foreign_field_name]
+    end
+
+    args[db_column.foreign_field_name] = serialize_arg(db_column.foreign_field, to_serialize, ws_id)
+
+    if args_names then
+      table.insert(args_names, db_column.col_name)
+    end
+  end
+end
+
+local function set_difference(old_set, new_set)
+  local new_set_hash = {}
+  for _, elem in ipairs(new_set) do
+    new_set_hash[elem] = true
+  end
+
+  local old_set_hash = {}
+  for _, elem in ipairs(old_set) do
+    old_set_hash[elem] = true
+  end
+
+  local elem_to_add = {}
+  local elem_to_delete = {}
+  local elem_not_changed = {}
+
+  for _, elem in ipairs(new_set) do
+    if not old_set_hash[elem] then
+      table.insert(elem_to_add, elem)
+    end
+  end
+
+  for _, elem in ipairs(old_set) do
+    if not new_set_hash[elem] then
+      table.insert(elem_to_delete, elem)
+    else
+      table.insert(elem_not_changed, elem)
+    end
+  end
+
+  return elem_to_add, elem_to_delete, elem_not_changed
+end
+
+local function build_tags(primary_key, schema, new_tags, rbw_entity)
+  local tags_to_add, tags_to_remove, tags_not_changed
+
+  new_tags = (not new_tags or new_tags == null) and {} or new_tags
+
+  if rbw_entity then
+    if rbw_entity and rbw_entity['tags'] and rbw_entity['tags'] ~= null then
+      tags_to_add, tags_to_remove, tags_not_changed = set_difference(rbw_entity['tags'], new_tags)
+    else
+      tags_to_add = new_tags
+      tags_to_remove = {}
+      tags_not_changed = {}
+    end
+  else
+    tags_to_add = new_tags
+    tags_to_remove = {}
+    tags_not_changed = {}
+  end
+
+  if #tags_to_add == 0 and #tags_to_remove == 0 then
+    return nil, nil
+  end
+  -- Note: here we assume tags column only exists
+  -- with those entities use id as their primary key
+  local entity_id = primary_key['id']
+  local ops = {}
+  for _, tag in ipairs(tags_not_changed) do
+    table.insert(ops, {
+      type = 'update',
+      set = { other_tags = new_tags },
+      where = {tag = tag, entity_name = schema.name, entity_id = entity_id }
+    })
+  end
+  for _, tag in ipairs(tags_to_add) do
+    table.insert(ops, {
+      type = 'insert',
+      values = { tag = tag, entity_name = schema.name, entity_id = entity_id, other_tags = new_tags }
+    })
+  end
+  for _, tag in ipairs(tags_to_remove) do
+    table.insert(ops, {
+      type = 'remove',
+      where = { tag = tag, entity_name = schema.name, entity_id = entity_id }
+    })
+  end
+
+  return ops, nil
 end
 
 -- Determine if a workspace is to be used, and if so, which one.
@@ -162,6 +373,46 @@ local function check_workspace(self, options, use_null)
   return has_ws_id, ws_id
 end
 
+local function check_unique(self, primary_key, entity, field_name, ws_id)
+  -- a UNIQUE constaint is set on this field.
+  -- We unfortunately follow a read-before-write pattern in this case,
+  -- but this is made necessary for Kong to behave in a
+  -- database-agnostic fashion between its supported RDBMs and
+  -- Cassandra.
+  local opts = { workspace = ws_id or null }
+  local row, err_t = self:select_by_field(field_name, entity[field_name], opts)
+  if err_t then
+    return nil, err_t
+  end
+
+  if row then
+    for _, pk_field_name in self.each_pk_field() do
+      if primary_key[pk_field_name] ~= row[pk_field_name] then
+        -- already exists
+        if field_name == "cache_key" then
+          local keys = {}
+          local schema = self.schema
+          for _, k in ipairs(schema.cache_key) do
+            local field = schema.fields[k]
+            if field.type == "foreign" and entity[k] ~= null then
+              keys[k] = field.schema:extract_pk_values(entity[k])
+            else
+              keys[k] = entity[k]
+            end
+          end
+          return nil, self.errors:unique_violation(keys)
+        end
+
+        return nil, self.errors:unique_violation {
+          [field_name] = entity[field_name],
+        }
+      end
+    end
+  end
+
+  return true
+end
+
 function _M.new(connector, schema, errors)
   local client, err = assert(mongo.Client(connector.server_url))
   if err then
@@ -184,7 +435,7 @@ function _M.new(connector, schema, errors)
 
 
   -- foreign keys constraints and page_for_ selector methods
-
+  --print(fmt("\n\n\nschema: %s", dump(schema)))
   for field_name, field in schema:each_field() do
     if field.type == "foreign" then
       local foreign_schema = field.schema
@@ -203,15 +454,6 @@ function _M.new(connector, schema, errors)
           end
         end
       end
-
-      local db_columns_args_names = {}
-
-      for i = 1, #db_columns do
-        -- keep args_names for 'page_for_*' methods
-        db_columns_args_names[i] = db_columns[i].col_name .. " = ?"
-      end
-
-      db_columns.args_names = concat(db_columns_args_names, " AND ")
 
       self.foreign_keys_db_columns[field_name] = db_columns
     end
@@ -238,41 +480,115 @@ function _M.new(connector, schema, errors)
   return setmetatable(self, _mt)
 end
 
--- insertion
+-- insert
 do
   function _mt:insert(entity, options)
     local schema = self.schema
     local ttl = schema.ttl and options and options.ttl
+    local has_composite_cache_key = schema.cache_key and #schema.cache_key > 1
     local collection_name = self.schema.name
     local client = self.connection.client
     local database = self.connection.database
 
     local collection = client:getCollection(database, collection_name)
+    local tags = client:getCollection(database, "tags")
 
     local has_ws_id, ws_id, err = check_workspace(self, options, false)
     if err then
       return nil, err
     end
 
-    -- TODO [M] missing tag logic (l.870)
-
-    -- TODO [M] ttl logic? (l.887)
-
-    -- TODO [M] create query (with composite key?) (l.904)
-    local query = {
-      partition = collection_name
-    }
-    -- TODO [M] check uniqueness and fkeys (l.904)
-    for field_name, field in schema:each_field() do
-      if field.type ~= 'foreign' then
-        local value = serialize_arg(field, entity[field_name], ws_id)
-        if value ~= null then
-          query[field_name] = value
-        end
+    -- tags
+    local bulk_ops = {}
+    local bulk_mode
+    local bulk = tags:createBulkOperation{ordered = true}
+    local primary_key
+    if schema.fields.tags then
+      primary_key = schema:extract_pk_values(entity)
+      local err_t
+      bulk_ops, err_t = build_tags(primary_key, schema, entity["tags"])
+      if err_t then
+        return nil, err_t
+      end
+      if bulk_ops then
+        bulk_mode = true
       end
     end
 
-    local res, err = collection:insert(to_bson(query))
+    local query = {
+      partition = collection_name
+    }
+
+    -- query fields
+    for field_name, field in schema:each_field() do
+      if field.type == "foreign" then
+        local foreign_pk = entity[field_name]
+
+        if foreign_pk ~= null then
+          -- if given, check if this foreign entity exists
+          local exists, err_t = foreign_pk_exists(self, field_name, field, foreign_pk, ws_id)
+          if not exists then
+            return nil, err_t
+          end
+        end
+
+        local db_columns = self.foreign_keys_db_columns[field_name]
+        serialize_foreign_pk(db_columns, query, nil, foreign_pk, ws_id)
+
+      else
+        if field.unique
+          and entity[field_name] ~= null
+          and entity[field_name] ~= nil
+        then
+          -- a UNIQUE constaint is set on this field.
+          primary_key = primary_key or schema:extract_pk_values(entity)
+          local _, err_t = check_unique(self, primary_key, entity, field_name, ws_id)
+          if err_t then
+            return nil, err_t
+          end
+        end
+        query[field_name] = serialize_arg(field, entity[field_name], ws_id)
+      end
+    end
+    -- TODO [M] some issue with serialize_arg - id turns to null somewhere...
+    query.id = entity.id
+    print(fmt("\n\n\n\nquery: %s\n\n\n\n", to_bson(query)))
+
+    -- if composite key
+    if has_composite_cache_key then
+      primary_key = primary_key or schema:extract_pk_values(entity)
+      local _, err_t = check_unique(self, primary_key, entity, "cache_key", ws_id)
+      if err_t then
+        return nil, err_t
+      end
+      query["cache_key"] = serialize_arg(cache_key_field, entity["cache_key"], ws_id)
+    end
+
+    -- if workspace
+    if has_ws_id then
+      query["ws_id"] = serialize_arg(ws_id_field, ws_id, ws_id)
+    end
+
+    -- update/create/delete tags if needed
+    if bulk_mode then
+      for _, op in ipairs(bulk_ops) do
+        if op.type == 'update' then
+          bulk:updateOne(to_bson(op.where), to_bson(op.set))
+        elseif op.type == 'insert' then
+          bulk:insert(to_bson(op.values))
+        elseif op.type == 'remove' then
+          bulk:removeOne(to_bson(op.where))
+        end
+      end
+
+      local _, err = bulk:execute()
+      if err then
+        return nil, err
+      end
+    end
+
+    -- execute insert query
+    local res, err = collection:insert(to_bson(query, true))
     if not res then
       return nil, err
     end
@@ -285,28 +601,16 @@ do
   end
 end
 
--- selection
+-- select
 do
-  function _mt:select(primary_key, options)
-    local schema = self.schema
+
+  local function select(self, where, ws_id)
     local collection_name = self.schema.name
     local client = self.connection.client
     local database = self.connection.database
 
-
-    local _, ws_id, err = check_workspace(self, options, false)
-    if err then
-      return nil, err
-    end
-
-    --print(fmt("\n\n\nprimary_key: %s\n\n\n", dump(primary_key)))
-    local where = {}
-    for field_name, field in pairs(primary_key) do
-      where[field_name] = serialize_arg(field, primary_key[field_name], ws_id)
-    end
-
     local collection = client:getCollection(database, collection_name)
-    local cursor, err = collection:find(where)
+    local cursor, err = collection:find(to_bson(where))
     if not cursor then
       return nil, self.errors:database_error("could not execute selection query: " .. err)
     end
@@ -325,16 +629,62 @@ do
     if row.ws_id and ws_id and row.ws_id ~= ws_id then
       return nil
     end
-    return row
+    return self:deserialize_row(row)
+  end
+
+  function _mt:select(primary_key, options)
+
+    local _, ws_id, err = check_workspace(self, options, false)
+    if err then
+      return nil, err
+    end
+
+    --print(fmt("\n\n\nprimary_key: %s\n\n\n", dump(primary_key)))
+    local where = {}
+    for field_name, field in pairs(primary_key) do
+      where[field_name] = serialize_arg(field, primary_key[field_name], ws_id)
+    end
+
+    return select(self, where, ws_id)
   end
 
   function _mt:select_by_field(field_name, field_value, options)
-    print(fmt("\n\nfield_name: %s\n\nfield_value: %s\n\noptions: %s\n\n", field_name, field_value, dump(options)))
-    return {}
+    --print(fmt("\n\nfield_name: %s\n\nfield_value: %s\n\noptions: %s\n\n", field_name, field_value, dump(options)))
+
+    local has_ws_id, ws_id, err = check_workspace(self, options, false)
+    if err then
+      return nil, err
+    end
+
+    if has_ws_id and ws_id == nil
+      and not self.schema.fields[field_name].unique_across_ws then
+      -- fail with error: this is not a database failure, this is programmer error
+      error("cannot select on field " .. field_name .. "without a workspace " ..
+        "because it is not marked unique_across_ws")
+    end
+
+    local field
+    if field_name == "cache_key" then
+      field = cache_key_field
+    else
+      field = self.schema.fields[field_name]
+      if field
+        and field.reference
+        and self.foreign_keys_db_columns[field_name]
+        and self.foreign_keys_db_columns[field_name][1]
+      then
+        field_name = self.foreign_keys_db_columns[field_name][1].col_name
+      end
+    end
+
+    local where = {}
+    where[field_name] = serialize_arg(field, field_value, ws_id)
+
+    return select(self, where, ws_id)
   end
 end
 
--- deletion
+-- delete
 do
   function _mt:delete(primary_key, options)
     --print(fmt("\n\n\n\nprimarykey: %s\n\n\n\n", dump(primary_key)))
@@ -366,7 +716,7 @@ do
     end
 
     local collection = client:getCollection(database, collection_name)
-    local deleted, err = collection:removeMany(where)
+    local deleted, err = collection:removeMany(to_bson(where))
     if not deleted then
       return nil, self.errors:database_error("could not execute selection query: " .. err)
     end
@@ -412,13 +762,13 @@ do
 
     set["$set"].id = nil
 
-    local res, err = collection:update(where, set, { upsert = mode == "upsert" })
+    local res, err = collection:update(to_bson(where), set, { upsert = mode == "upsert" })
     if not res then
       return nil, self.errors:database_error("could not execute update query: "
         .. err)
     end
 
-    local row, err_t = self:select(primary_key, { workspace = ws_id or null })
+    local row, err_t = self:select(to_bson(primary_key), { workspace = ws_id or null })
     if err_t then
       return nil, err_t
     end
@@ -442,7 +792,8 @@ end
 -- pagination
 do
   local function execute_page(self, collection, where, offset, opts)
-    local cursor, err = collection:find(where, {
+    --print(fmt("\n\n\nwhere clause: %s\n\n\n", dump(to_bson(where))))
+    local cursor, err = collection:find(to_bson(where), {
       limit = opts.page_size,
       skip = tonumber(offset) or 0
     })
@@ -486,7 +837,7 @@ do
       table.insert(rows, record)
     end
 
-    --print(fmt("rows: %s\n\n", dump(rows)))
+    --print(fmt("\n\n\nrows: %s\n\n", dump(rows)))
     return rows, nil, next_offset and encode_base64(next_offset)
   end
 
