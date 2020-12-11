@@ -605,38 +605,38 @@ do
   end
 end
 
+
 -- select
-do
+local function select(self, where, ws_id)
+  local collection_name = self.schema.name
+  local client = self.connection.client
+  local database = self.connection.database
 
-  local function select(self, where, ws_id)
-    local collection_name = self.schema.name
-    local client = self.connection.client
-    local database = self.connection.database
-
-    local collection = client:getCollection(database, collection_name)
-    local cursor, err = collection:find(to_bson(where))
-    if not cursor then
-      return nil, self.errors:database_error("could not execute selection query: " .. err)
-    end
-
-    local rows = {}
-    for record in cursor:iterator() do
-      table.insert(rows, record)
-    end
-    --print(fmt("\n\n\nrows: %s\n\n\n", dump(rows)))
-
-    local row = rows[1]
-    if not row then
-      return nil
-    end
-
-    if row.ws_id and ws_id and row.ws_id ~= ws_id then
-      return nil
-    end
-
-    return self:deserialize_row(row)
+  local collection = client:getCollection(database, collection_name)
+  local cursor, err = collection:find(to_bson(where))
+  if not cursor then
+    return nil, self.errors:database_error("could not execute selection query: " .. err)
   end
 
+  local rows = {}
+  for record in cursor:iterator() do
+    table.insert(rows, record)
+  end
+  --print(fmt("\n\n\nrows: %s\n\n\n", dump(rows)))
+
+  local row = rows[1]
+  if not row then
+    return nil
+  end
+
+  if row.ws_id and ws_id and row.ws_id ~= ws_id then
+    return nil
+  end
+
+  return self:deserialize_row(row)
+end
+
+do
   function _mt:select(primary_key, options)
     --print(fmt("\nSELECT:\nprimary_key: %s\noptions: %s\n\n", dump(primary_key), dump(options)))
 
@@ -692,8 +692,76 @@ end
 
 -- delete
 do
+  local function select_by_foreign_key (self, f_schema, f_field_name, fk, ws_id)
+    local n_fields = #f_schema.fields
+    local strategy = _M.new(self.connector, f_schema, self.errors)
+    -- SELECT %s FROM %s WHERE %s , select_columns, schema.name, "%s"
+    local where = {}
+
+    local args = {}
+    local args_names = {}
+    if f_field_name then
+      local db_columns = strategy.foreign_keys_db_columns[f_field_name]
+      serialize_foreign_pk(db_columns, args, args_names, fk, ws_id)
+    else
+      args = { serialize_arg(ws_id_field, ws_id, ws_id) }
+    end
+
+    for i, arg in ipairs(args) do
+      where[args_names[i]] = arg[i]
+    end
+
+    return select(strategy, where, ws_id)
+  end
+
+  local function delete_on_constraint (self, constraint, primary_key, ws_id)
+    local behavior = constraint.on_delete or "restrict"
+
+    if behavior == "restrict" then
+
+      local row, err_t = select_by_foreign_key(self,
+        constraint.schema,
+        constraint.field_name,
+        primary_key, ws_id)
+      if err_t then
+        return nil, err_t
+      end
+
+      if row then
+        -- a row is referring to this entity, we cannot delete it.
+        -- deleting the parent entity would violate the foreign key
+        -- constraint
+        return nil, self.errors:foreign_key_violation_restricted(self.schema.name,
+          constraint.schema.name)
+      end
+
+    elseif behavior == "cascade" then
+
+      local strategy = _M.new(self.connector, constraint.schema, self.errors)
+      local method = "page_for_" .. constraint.field_name
+
+      local pager = function(size, offset)
+        return strategy[method](strategy, primary_key, size, offset)
+      end
+      for row, err in iteration.by_row(self, pager) do
+        if err then
+          return nil, self.errors:database_error("could not gather " ..
+            "associated entities " ..
+            "for delete cascade: " .. err)
+        end
+
+        local row_pk = constraint.schema:extract_pk_values(row)
+        local _
+        _, err = strategy:delete(row_pk)
+        if err then
+          return nil, self.errors:database_error("could not cascade " ..
+            "delete entity: " .. err)
+        end
+      end
+    end
+  end
+
   function _mt:delete(primary_key, options)
-    --print(fmt("\n\n\n\nprimarykey: %s\n\n\n\n", dump(primary_key)))
     local schema = self.schema
     local ttl = schema.ttl and options and options.ttl
     local collection_name = self.schema.name
@@ -711,9 +779,49 @@ do
     end
 
     local constraints = schema:get_constraints()
-    --print(fmt("\n\n\n\nconstraints: %s\n\n\n\n", dump(constraints)))
     for i = 1, #constraints do
-      -- TODO [M] check fkeys
+      delete_on_constraint(self, constraints[i], primary_key, ws_id)
+    end
+
+    local rbw_entity, err_t
+    if schema.workspaceable or schema.fields.tags then
+      rbw_entity, err_t = self:select(primary_key, { workspace = ws_id or null })
+      if err_t then
+        return nil, err_t
+      end
+      if not rbw_entity then
+        return true
+      end
+    end
+
+    local bulk_ops = {}
+    local bulk_mode
+    local tags = client:getCollection(database, "tags")
+    local bulk = tags:createBulkOperation{ordered = true}
+    if schema.fields.tags then
+      bulk_ops, err_t = build_tags(primary_key, self.schema, {}, nil, rbw_entity)
+      if err_t then
+        return nil, err_t
+      end
+      if bulk_ops then
+        bulk_mode = true
+      end
+    end
+    if bulk_mode then
+      for _, op in ipairs(bulk_ops) do
+        if op.type == 'update' then
+          bulk:updateOne(to_bson(op.where), to_bson(op.set))
+        elseif op.type == 'insert' then
+          bulk:insert(to_bson(op.values))
+        elseif op.type == 'remove' then
+          bulk:removeOne(to_bson(op.where))
+        end
+      end
+
+      local _, err = bulk:execute()
+      if err then
+        return nil, err
+      end
     end
 
     local where = {}
@@ -734,7 +842,6 @@ end
 
 -- update
 do
-
   local function update(self, primary_key, entity, mode, options)
     local schema = self.schema
     local ttl = schema.ttl and options and options.ttl
