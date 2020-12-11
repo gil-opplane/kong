@@ -72,6 +72,9 @@ local function serialize_arg(field, arg, ws_id)
   if arg == null then
     serialized_arg = null
 
+  elseif field.type == "integer" and field.timestamp == true then
+    serialized_arg = arg*1000
+
   elseif field.type == "string" then
     local _arg = arg
     if field.unique and ws_id and not field.unique_across_ws then
@@ -84,7 +87,7 @@ local function serialize_arg(field, arg, ws_id)
     for i = 1, #arg do
       table.insert(t, serialize_arg(field.elements, arg[i], ws_id))
     end
-    serialized_arg = #t == 0 and null or t
+    serialized_arg = t
 
   elseif field.type == "set" then
     local t = {}
@@ -92,17 +95,14 @@ local function serialize_arg(field, arg, ws_id)
       table.insert(t, serialize_arg(field.elements, arg[i], ws_id))
     end
 
-    serialized_arg = #t == 0 and null or t
+    serialized_arg = t
 
   elseif field.type == "map" then
     local t = {}
     for k, v in pairs(arg) do
       t[k] = serialize_arg(field.values, arg[k], ws_id)
     end
-    serialized_arg = #t == 0 and null or t
-
-  elseif field.type == "record" then
-    serialized_arg = arg
+    serialized_arg = t
 
   elseif field.type == "foreign" then
     local fk_pk = field.schema.primary_key[1]
@@ -538,6 +538,7 @@ do
 
         local db_columns = self.foreign_keys_db_columns[field_name]
         serialize_foreign_pk(db_columns, query, nil, foreign_pk, ws_id)
+        print(fmt("\n\n\nfieldname: %s, query: %s", field_name, dump(query)))
 
       else
         if field.unique
@@ -554,9 +555,13 @@ do
         query[field_name] = serialize_arg(field, entity[field_name], ws_id)
       end
     end
-    -- TODO [M] some issue with serialize_arg - id turns to null somewhere...
+    -- TODO [M] some issue with serialize_arg - fields turn to null somewhere
     query.id = entity.id
-    print(fmt("\n\n\n\nquery: %s\n\n\n\n", to_bson(query)))
+    --print(fmt("\n\n\n\nquery: %s\n\n\n\n", to_bson(query)))
+    --print(fmt("\n\n@@@@@@@@@@@@@@@@@@@@@@@@fuck this shit\n\n"))
+    --for field_name, field in schema:each_field() do
+    --  print(fmt("\n\nfieldname: %s, fieldtype: %s\nfielddump: %s", field_name, field.type, dump(field)))
+    --end
 
     -- if composite key
     if has_composite_cache_key then
@@ -780,7 +785,10 @@ do
 
     local constraints = schema:get_constraints()
     for i = 1, #constraints do
-      delete_on_constraint(self, constraints[i], primary_key, ws_id)
+      local _, err = delete_on_constraint(self, constraints[i], primary_key, ws_id)
+      if err then
+        return nil, err
+      end
     end
 
     local rbw_entity, err_t
