@@ -57,11 +57,13 @@ local function clear_nulls(o)
   return o
 end
 
-local function to_bson(tbl, clear)
-  if clear then
-    return chain(tbl, {clear_nulls, cjson.encode, mongo.BSON})
-  end
-  return chain(tbl, {cjson.encode, mongo.BSON})
+local function to_bson(tbl, opts)
+  local function empty() return tbl end
+  return chain(tbl, {
+    opts and opts.clear and clear_nulls or empty,
+    cjson.encode,
+    mongo.BSON
+  })
 end
 
 local function serialize_arg(field, arg, ws_id)
@@ -121,8 +123,9 @@ local function deserialize_aggregates(value, field)
       value = cjson.decode(value)
     end
 
-  elseif field.type == "set" then
+  elseif field.type == "set" or field.type == "array" then
     if type(value) == "table" then
+      value["__array"] = nil
       for i = 1, #value do
         value[i] = deserialize_aggregates(value[i], field.elements)
       end
@@ -145,6 +148,7 @@ function _mt:deserialize_row(row)
   -- replace `nil` fields with `ngx.null`
   -- replace `foreign_key` with `foreign = { key = "" }`
   -- return timestamps in seconds instead of ms
+  -- remove __array key from arrays
 
   for field_name, field in self.schema:each_field() do
     local ws_unique = field.unique and not field.unique_across_ws
@@ -588,7 +592,7 @@ do
     end
 
     -- execute insert query
-    local res, err = collection:insert(to_bson(query, true))
+    local res, err = collection:insert(to_bson(query, { clear = true }))
     if not res then
       return nil, err
     end
@@ -629,10 +633,12 @@ do
     if row.ws_id and ws_id and row.ws_id ~= ws_id then
       return nil
     end
+
     return self:deserialize_row(row)
   end
 
   function _mt:select(primary_key, options)
+    --print(fmt("\nSELECT:\nprimary_key: %s\noptions: %s\n\n", dump(primary_key), dump(options)))
 
     local _, ws_id, err = check_workspace(self, options, false)
     if err then
@@ -649,7 +655,7 @@ do
   end
 
   function _mt:select_by_field(field_name, field_value, options)
-    --print(fmt("\n\nfield_name: %s\n\nfield_value: %s\n\noptions: %s\n\n", field_name, field_value, dump(options)))
+    --print(fmt("\nSELECTBYFIELD:\nfield_name: %s\nfield_value: %s\noptions: %s\n\n", field_name, field_value, dump(options)))
 
     local has_ws_id, ws_id, err = check_workspace(self, options, false)
     if err then
@@ -762,13 +768,18 @@ do
 
     set["$set"].id = nil
 
-    local res, err = collection:update(to_bson(where), set, { upsert = mode == "upsert" })
+    --print(fmt("\n\n\n\nset: %s\n\n\n\n", to_bson(set, { clear = true })))
+    local res, err = collection:update(
+      to_bson(where),
+      to_bson(set, { clear = true }),
+      { upsert = mode == "upsert" }
+    )
     if not res then
       return nil, self.errors:database_error("could not execute update query: "
         .. err)
     end
 
-    local row, err_t = self:select(to_bson(primary_key), { workspace = ws_id or null })
+    local row, err_t = self:select(primary_key, { workspace = ws_id or null })
     if err_t then
       return nil, err_t
     end
@@ -834,7 +845,7 @@ do
     end
 
     for record in cursor:iterator() do
-      table.insert(rows, record)
+      table.insert(rows, self:deserialize_row(record))
     end
 
     --print(fmt("\n\n\nrows: %s\n\n", dump(rows)))
